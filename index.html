@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIFTY Indices Dashboard</title>
+    
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" />
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .control-group label {
+            font-weight: 600;
+            color: #555;
+            font-size: 12px;
+        }
+        
+        select, input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .refresh-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            background: #0056b3;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        
+        table th {
+            background: #343a40;
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        #errorMsg {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-container input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📈 NIFTY Indices Live Dashboard</h1>
+            <p>Real-time Indian stock market indices with risk-reward analysis</p>
+        </div>
+
+        <div id="errorMsg">
+            ⚠️ Unable to fetch live data. Showing fallback data instead.
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="refreshInterval">Refresh Interval:</label>
+                <select id="refreshInterval">
+                    <option value="30000">30 seconds</option>
+                    <option value="60000" selected>1 minute</option>
+                    <option value="300000">5 minutes</option>
+                    <option value="600000">10 minutes</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="autoRefreshToggle" checked>
+                    <label for="autoRefreshToggle">Auto Refresh</label>
+                </div>
+            </div>
+            
+            <button class="refresh-btn" onclick="fetchAndRender()">🔄 Refresh Now</button>
+        </div>
+
+        <div class="status">
+            <div class="status-indicator"></div>
+            <span>Live Data Feed Active</span>
+        </div>
+
+        <div class="section">
+            <h2>🏆 Top Market Indices</h2>
+            <table id="topIndicesTable" class="display">
+                <thead>
+                    <tr>
+                        <th>Index Name</th>
+                        <th>Last Price</th>
+                        <th>Change %</th>
+                        <th>Year High</th>
+                        <th>Year Low</th>
+                        <th>Distance to High</th>
+                        <th>Distance from Low</th>
+                        <th>Risk/Reward</th>
+                        <th>Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>🏭 Sector Indices</h2>
+            <table id="sectorIndicesTable" class="display">
+                <thead>
+                    <tr>
+                        <th>Index Name</th>
+                        <th>Last Price</th>
+                        <th>Change %</th>
+                        <th>Year High</th>
+                        <th>Year Low</th>
+                        <th>Distance to High</th>
+                        <th>Distance from Low</th>
+                        <th>Risk/Reward</th>
+                        <th>Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>📊 All Indices</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="indexTypeFilter">Index Type:</label>
+                    <select id="indexTypeFilter">
+                        <option value="all">All Types</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="indexSubTypeFilter">Index Sub-Type:</label>
+                    <select id="indexSubTypeFilter">
+                        <option value="all">All Sub-Types</option>
+                    </select>
+                </div>
+            </div>
+            <table id="allIndicesTable" class="display">
+                <thead>
+                    <tr>
+                        <th>Index Name</th>
+                        <th>Last Price</th>
+                        <th>Change %</th>
+                        <th>Year High</th>
+                        <th>Year Low</th>
+                        <th>Distance to High</th>
+                        <th>Distance from Low</th>
+                        <th>Risk/Reward</th>
+                        <th>Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- jQuery and DataTables -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+    <script>
+        const fallbackData = [
+            {
+                indexName: "NIFTY 50",
+                last: "22,000",
+                yearHigh: "23,000",
+                yearLow: "17,000",
+                percChange: "0.35",
+                indexType: "Broad Market",
+                indexSubType: "Large Cap",
+                timeVal: new Date().toLocaleString()
+            },
+            {
+                indexName: "NIFTY BANK",
+                last: "47,000",
+                yearHigh: "48,000",
+                yearLow: "38,000",
+                percChange: "0.50",
+                indexType: "Sectoral",
+                indexSubType: "Banking",
+                timeVal: new Date().toLocaleString()
+            },
+            {
+                indexName: "NIFTY IT",
+                last: "35,000",
+                yearHigh: "36,000",
+                yearLow: "28,000",
+                percChange: "-0.25",
+                indexType: "Sectoral",
+                indexSubType: "Information Technology",
+                timeVal: new Date().toLocaleString()
+            },
+            {
+                indexName: "NIFTY AUTO",
+                last: "18,500",
+                yearHigh: "19,000",
+                yearLow: "15,000",
+                percChange: "0.75",
+                indexType: "Sectoral",
+                indexSubType: "Automobile",
+                timeVal: new Date().toLocaleString()
+            },
+            {
+                indexName: "NIFTY NEXT 50",
+                last: "65,000",
+                yearHigh: "68,000",
+                yearLow: "52,000",
+                percChange: "0.45",
+                indexType: "Broad Market",
+                indexSubType: "Large Cap",
+                timeVal: new Date().toLocaleString()
+            }
+        ];
+
+        function isValid(value) {
+            return value && value !== "nil" && !isNaN(parseFloat(value.replace(/,/g, '')));
+        }
+
+        function populateFilters(data) {
+            const typeSet = new Set();
+            const subTypeSet = new Set();
+            data.forEach(i => {
+                if (i.indexType) typeSet.add(i.indexType);
+                if (i.indexSubType) subTypeSet.add(i.indexSubType);
+            });
+
+            const typeSelect = document.getElementById("indexTypeFilter");
+            const subTypeSelect = document.getElementById("indexSubTypeFilter");
+
+            if (typeSelect) {
+                for (let i = typeSelect.options.length - 1; i > 0; i--) {
+                    typeSelect.remove(i);
+                }
+                [...typeSet].sort().forEach(type => {
+                    const opt = document.createElement("option");
+                    opt.value = type;
+                    opt.textContent = type;
+                    typeSelect.appendChild(opt);
+                });
+            }
+
+            if (subTypeSelect) {
+                for (let i = subTypeSelect.options.length - 1; i > 0; i--) {
+                    subTypeSelect.remove(i);
+                }
+                [...subTypeSet].sort().forEach(sub => {
+                    const opt = document.createElement("option");
+                    opt.value = sub;
+                    opt.textContent = sub;
+                    subTypeSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function renderTable(data, tableId) {
+            const table = $(`#${tableId}`);
+            if (!table.length) return;
+            if ($.fn.dataTable.isDataTable(table)) {
+                table.DataTable().destroy();
+            }
+            const tbody = table.find("tbody")[0];
+            if (!tbody) return;
+            tbody.innerHTML = data.map(index => {
+                const last = parseFloat(index.last.replace(/,/g, ''));
+                const high = parseFloat(index.yearHigh.replace(/,/g, ''));
+                const low = parseFloat(index.yearLow.replace(/,/g, ''));
+                const change = parseFloat(index.percChange);
+                const toHigh = (((high - last) / last) * 100).toFixed(2);
+                const toLow = (((last - low) / last) * 100).toFixed(2);
+                const riskReward = parseFloat(toLow) > 0 ? (parseFloat(toHigh) / parseFloat(toLow)).toFixed(2) : '∞';
+                return `<tr>
+                    <td><strong>${index.indexName}</strong></td>
+                    <td>${index.last}</td>
+                    <td style="color: ${change >= 0 ? 'green' : 'red'}; font-weight: bold;">${change}%</td>
+                    <td>${index.yearHigh} <br><small style="color: #666;">(${((last - high) / high * 100).toFixed(2)}%)</small></td>
+                    <td>${index.yearLow} <br><small style="color: #666;">(${((last - low) / low * 100).toFixed(2)}%)</small></td>
+                    <td style='color: blue; font-weight: bold;'>${toHigh}%</td>
+                    <td style='color: orange; font-weight: bold;'>${toLow}%</td>
+                    <td style='font-weight: bold;'>${riskReward}</td>
+                    <td><small>${index.timeVal}</small></td>
+                </tr>`;
+            }).join('');
+            table.DataTable({ 
+                stateSave: true,
+                pageLength: 10,
+                responsive: true,
+                order: [[1, 'desc']]
+            });
+        }
+
+        async function fetchAndRender() {
+            try {
+                document.getElementById("errorMsg").style.display = "none";
+                const timestamp = Date.now();
+                const res = await fetch(`https://iislliveblob.niftyindices.com/jsonfiles/LiveIndicesWatch.json?_=${timestamp}`);
+                if (!res.ok) throw new Error("Response not OK");
+                const json = await res.json();
+                const fullData = json.data;
+
+                populateFilters(fullData);
+
+                const selectedType = document.getElementById("indexTypeFilter").value || "all";
+                const selectedSubType = document.getElementById("indexSubTypeFilter").value || "all";
+
+                const filteredAll = fullData.filter(i =>
+                    isValid(i.yearHigh) &&
+                    isValid(i.yearLow) &&
+                    isValid(i.last) &&
+                    (selectedType === "all" || i.indexType === selectedType) &&
+                    (selectedSubType === "all" || i.indexSubType === selectedSubType)
+                );
+
+                renderTable(filteredAll.filter(i =>
+                    ["NIFTY 50", "NIFTY NEXT 50", "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250", "NIFTY MICROCAP250"].includes(i.indexName)
+                ), "topIndicesTable");
+
+                renderTable(filteredAll.filter(i =>
+                    ["NIFTY BANK", "NIFTY IT", "NIFTY AUTO", "NIFTY FMCG", ""].includes(i.indexName)
+                ), "sectorIndicesTable");
+
+                renderTable(filteredAll, "allIndicesTable");
+
+            } catch (err) {
+                console.error("Fetch error", err);
+                document.getElementById("errorMsg").style.display = "block";
+                populateFilters(fallbackData);
+                renderTable(fallbackData.filter(i =>
+                    ["NIFTY 50", "NIFTY NEXT 50", "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250", "NIFTY MICROCAP250"].includes(i.indexName)
+                ), "topIndicesTable");
+                renderTable(fallbackData.filter(i =>
+                    ["NIFTY BANK", "NIFTY IT", "NIFTY AUTO"].includes(i.indexName)
+                ), "sectorIndicesTable");
+                renderTable(fallbackData, "allIndicesTable");
+            }
+        }
+
+        function startAutoRefresh() {
+            const interval = parseInt(document.getElementById("refreshInterval").value || 60000);
+            console.log("Starting auto refresh with interval:", interval);
+            clearInterval(window.intervalId);
+            
+            if (document.getElementById("autoRefreshToggle").checked) {
+                window.intervalId = setInterval(() => {
+                    console.log("Auto refresh triggered");
+                    fetchAndRender();
+                }, interval);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchAndRender();
+            
+            // Event listeners
+            document.getElementById("refreshInterval").addEventListener("change", function() {
+                console.log("Refresh interval changed to:", this.value);
+                startAutoRefresh();
+            });
+            
+            document.getElementById("autoRefreshToggle").addEventListener("change", function() {
+                console.log("Auto refresh toggled:", this.checked);
+                if (this.checked) {
+                    fetchAndRender();
+                    startAutoRefresh();
+                } else {
+                    clearInterval(window.intervalId);
+                }
+            });
+            
+            document.getElementById("indexTypeFilter").addEventListener("change", fetchAndRender);
+            document.getElementById("indexSubTypeFilter").addEventListener("change", fetchAndRender);
+            
+            // Start auto refresh
+            startAutoRefresh();
+        });
+    </script>
+</body>
+</html>
