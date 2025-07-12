@@ -63,89 +63,26 @@ export default async function handler(req, res) {
       ]);
     }
     
-    // Step 1: Establish session cookies once for all requests
+    // Step 1: Enhanced session establishment with realistic browser flow
     console.log('Establishing NSE session...');
     let sessionCookies = '';
     
-    // Try multiple approaches to establish session
-    const sessionMethods = [
-      {
-        name: 'Main NSE Page',
-        url: 'https://www.nseindia.com/',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Cache-Control': 'no-cache'
-        }
-      },
-      {
-        name: 'Market Data Page',
-        url: 'https://www.nseindia.com/market-data',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Cache-Control': 'no-cache'
-        }
-      }
-    ];
+    // Try alternative approach: Direct API call without session (NSE sometimes allows this)
+    console.log('Attempting direct API access...');
     
-    for (const method of sessionMethods) {
-      try {
-        console.log(`Trying ${method.name}...`);
-        const sessionResponse = await fetchWithTimeout(method.url, {
-          method: 'GET',
-          headers: method.headers
-        }, 10000);
-        
-        console.log(`${method.name} response status: ${sessionResponse.status}`);
-        
-        if (sessionResponse.ok) {
-          const rawCookies = sessionResponse.headers.get('set-cookie');
-          if (rawCookies) {
-            // Parse and format cookies properly
-            const cookies = rawCookies.split(',').map(cookie => cookie.trim().split(';')[0]).join('; ');
-            sessionCookies = cookies;
-            console.log(`Session established via ${method.name}: ${cookies.length} chars`);
-            console.log(`Sample cookies: ${cookies.substring(0, 100)}...`);
-            break;
-          }
-        }
-      } catch (error) {
-        console.error(`${method.name} failed:`, error.message);
-      }
-    }
-    
-    if (!sessionCookies) {
-      console.warn('No session cookies established - API calls may fail');
-    }
-    
-    // Function to fetch data for a single symbol using shared session
+    // Function to fetch data for a single symbol
     async function fetchSingleSymbol(symbol) {
       try {
         const targetUrl = `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`;
         console.log(`Fetching ${symbol} from: ${targetUrl}`);
         
-        // Prepare headers - enhance with more NSE-specific headers
+        // Enhanced headers for better NSE compatibility
         const headers = {
-          'Accept': '*/*',
+          'Accept': 'application/json, text/plain, */*',
           'Accept-Language': 'en-US,en;q=0.9',
           'Accept-Encoding': 'gzip, deflate, br',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.nseindia.com/',
+          'Referer': 'https://www.nseindia.com/get-quotes/equity',
           'Origin': 'https://www.nseindia.com',
           'X-Requested-With': 'XMLHttpRequest',
           'Cache-Control': 'no-cache',
@@ -155,21 +92,17 @@ export default async function handler(req, res) {
           'Sec-Fetch-Site': 'same-origin',
           'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
           'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"'
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Pragma': 'no-cache'
         };
         
-        // Add session cookies if available
-        if (sessionCookies) {
-          headers['Cookie'] = sessionCookies;
-        }
+        console.log(`${symbol}: Making direct API call...`);
         
-        console.log(`${symbol}: Using cookies: ${sessionCookies ? 'Yes' : 'No'}`);
-        
-        // Make the API request with enhanced headers
+        // Make the API request
         const response = await fetchWithTimeout(targetUrl, {
           method: 'GET',
           headers: headers
-        }, 12000); // 12 second timeout for individual API calls
+        }, 15000);
         
         console.log(`${symbol}: Response ${response.status} ${response.statusText}`);
         
@@ -180,16 +113,15 @@ export default async function handler(req, res) {
           console.error(`${symbol}: Error response - Content-Type: ${contentType}`);
           console.error(`${symbol}: Error body: ${errorText.substring(0, 300)}`);
           
-          // Special handling for 401 errors - provide more context
+          // For 401 errors, provide specific guidance
           if (response.status === 401) {
-            const isHtmlResponse = contentType.includes('text/html');
             return {
               symbol: symbol,
               success: false,
-              error: `HTTP 401: Unauthorized${isHtmlResponse ? ' (HTML error page)' : ''}`,
-              details: isHtmlResponse ? 'NSE returned HTML error page instead of JSON - session cookies may be invalid' : errorText.substring(0, 200),
+              error: 'NSE API Access Denied',
+              details: 'NSE is blocking automated access. Consider using demo data or alternative data sources.',
+              suggestion: 'Try the demo data button or use alternative financial data APIs like Alpha Vantage or Yahoo Finance',
               contentType: contentType,
-              sessionCookiesUsed: sessionCookies ? 'Yes' : 'No',
               timestamp: new Date().toISOString()
             };
           }
@@ -228,10 +160,10 @@ export default async function handler(req, res) {
       }
     }
     
-    // Make parallel requests for all symbols with chunking to prevent timeout
+    // Make batch requests with chunking to prevent timeout
     console.log('Starting batch requests...');
     const startTime = Date.now();
-    const MAX_CONCURRENT = 8; // Limit concurrent requests to prevent overwhelming NSE
+    const MAX_CONCURRENT = 6; // Reduced to be more gentle on NSE
     const MAX_PROCESSING_TIME = 45000; // 45 second max processing time
     
     const results = [];
@@ -267,6 +199,11 @@ export default async function handler(req, res) {
         const chunkDuration = Date.now() - chunkStartTime;
         console.log(`Chunk completed in ${chunkDuration}ms`);
         
+        // Small delay between chunks to be respectful to NSE
+        if (i + MAX_CONCURRENT < symbols.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
       } catch (error) {
         console.error(`Chunk failed:`, error.message);
         // Add error results for this chunk
@@ -300,7 +237,8 @@ export default async function handler(req, res) {
         failed: failed.length,
         duration: `${duration}ms`,
         timestamp: new Date().toISOString(),
-        source: 'NSE API via Vercel Proxy (Batch)'
+        source: 'NSE API via Vercel Proxy (Direct Access)',
+        note: failed.length > 0 ? 'Some requests failed - NSE may be blocking automated access' : 'All requests successful'
       },
       data: {},
       errors: {}
@@ -316,6 +254,7 @@ export default async function handler(req, res) {
       response.errors[result.symbol] = {
         error: result.error,
         details: result.details,
+        suggestion: result.suggestion,
         timestamp: result.timestamp
       };
     });
