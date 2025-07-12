@@ -391,7 +391,7 @@
                 <h2>🏢 Companies Data</h2>
                 <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin-bottom: 10px; font-size: 12px;">
                     <strong>⚡ Optimized Batch Loading:</strong> 
-                    🚀 Vercel Batch API (20+ companies in 1 call) | 🌐 External Proxy Fallback | 📊 Demo Data | ❌ Error/Missing
+                    🚀 Vercel Batch API (20+ companies in 1 call) | 📊 Demo Data Fallback | ❌ Error/Missing
                 </div>
 
                 <table id="companiesTable" class="display">
@@ -1093,357 +1093,29 @@
             };
         }
         
-        // Fallback function for individual external proxy calls
-        async function fetchCompanyDataFallback(symbol) {
-            try {
-                // Try external proxy services only
-                const externalProxies = [
-                    {
-                        name: 'AllOrigins',
-                        url: `https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
-                        parseResponse: (data) => JSON.parse(data.contents)
-                    },
-                    {
-                        name: 'CORS.io',
-                        url: `https://corsproxy.io/?https://www.nseindia.com/api/quote-equity?symbol=${symbol}`,
-                        parseResponse: (data) => data
-                    },
-                    {
-                        name: 'CodeTabs',
-                        url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
-                        parseResponse: (data) => data
-                    }
-                ];
-                
-                for (const proxy of externalProxies) {
-                    try {
-                        const response = await fetch(proxy.url, {
-                            method: 'GET',
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        
-                        if (response.ok) {
-                            const rawData = await response.json();
-                            const data = proxy.parseResponse(rawData);
-                            
-                            if (data && (data.info || data.priceInfo)) {
-                                return processNSEData(symbol, data, proxy.name);
-                            }
-                        }
-                    } catch (proxyError) {
-                        console.warn(`${proxy.name} failed for ${symbol}:`, proxyError.message);
-                    }
-                }
-                
-                // If all proxies fail, return fallback data
-                return getFallbackData(symbol);
-                
-            } catch (error) {
-                console.error(`Complete failure for ${symbol}:`, error);
-                return getFallbackData(symbol);
-            }
-        }
-
-        // Fetch company data using multiple proxy methods
+        // Simple single symbol fetch (used by old functions if needed)
         async function fetchCompanyData(symbol) {
             try {
-                console.log(`Fetching data for ${symbol} via multiple proxy methods`);
+                console.log(`Fetching single symbol: ${symbol}`);
                 
-                // Method 1: Try Vercel API proxy first
-                try {
-                    console.log(`🔄 Trying Vercel API proxy for ${symbol}...`);
-                    const proxyUrl = `/api/nse-proxy?symbol=${symbol}&endpoint=quote`;
-                    
-                    const response = await fetch(proxyUrl, {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    });
-                    
-                    console.log(`Vercel API Response Status: ${response.status}`);
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log(`✅ Vercel API SUCCESS for ${symbol}:`, data);
-                        
-                        // Check if we have NSE data structure
-                        if (data && (data.info || data.priceInfo)) {
-                            const info = data.info || {};
-                            const priceInfo = data.priceInfo || {};
-                            const securityInfo = data.securityInfo || {};
-                            const preOpenMarket = data.preOpenMarket || {};
-                            const metadata = data.metadata || {};
-                            const industryInfo = data.industryInfo || {};
-                            
-                            // Calculate market cap: lastPrice * issuedSize
-                            const lastPrice = priceInfo.lastPrice || 0;
-                            const issuedSize = securityInfo.issuedSize || 0;
-                            const marketCap = lastPrice * issuedSize;
-                            
-                            // Use pre-market volume if available, otherwise 0
-                            const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
-                            
-                            // PE Ratio calculations
-                            const currentPE = metadata.pdSymbolPe || 0;
-                            const sectorPE = metadata.pdSectorPe || 0;
-                            const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
-                            const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
-                            
-                            // Calculate PE at 52-week high and low
-                            const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
-                            const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
-                            
-                            // Extract sector information
-                            const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
-                            
-                            return {
-                                symbol: symbol,
-                                companyName: info.companyName || info.symbol || symbol,
-                                sector: sector,
-                                lastPrice: lastPrice,
-                                change: priceInfo.change || 0,
-                                pChange: priceInfo.pChange || 0,
-                                dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
-                                dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
-                                weekHigh52: weekHigh52,
-                                weekLow52: weekLow52,
-                                totalTradedVolume: totalTradedVolume,
-                                marketCap: marketCap,
-                                currentPE: currentPE,
-                                sectorPE: sectorPE,
-                                peAtHigh: peAtHigh,
-                                peAtLow: peAtLow,
-                                lastUpdated: new Date().toLocaleString() + ' (🚀 Live via Vercel)',
-                                isLive: true
-                            };
-                        } else {
-                            console.warn(`⚠️ Vercel API returned unexpected structure:`, data);
-                            throw new Error('Invalid response structure from Vercel API');
-                        }
-                    } else {
-                        const errorData = await response.json();
-                        console.error(`❌ Vercel API failed with status ${response.status}:`, errorData);
-                        
-                        if (response.status === 401) {
-                            console.log('🔐 NSE API requires authentication - trying external proxies...');
-                            throw new Error(`NSE API authentication required: ${errorData.details || 'Session cookies needed'}`);
-                        } else {
-                            throw new Error(`Vercel API HTTP ${response.status}: ${errorData.error || 'Unknown error'}`);
-                        }
+                const response = await fetch(`/api/nse-proxy?symbol=${symbol}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && (data.info || data.priceInfo)) {
+                        return processNSEData(symbol, data, 'Vercel');
                     }
-                } catch (proxyError) {
-                    console.error(`❌ Vercel API Error for ${symbol}:`, proxyError);
-                    
-                    // Method 2: Try external proxy services
-                    console.log(`🔄 Trying external proxy services for ${symbol}...`);
-                    
-                    const externalProxies = [
-                        {
-                            name: 'AllOrigins',
-                            url: `https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
-                            parseResponse: (data) => JSON.parse(data.contents)
-                        },
-                        {
-                            name: 'CORS.io',
-                            url: `https://corsproxy.io/?https://www.nseindia.com/api/quote-equity?symbol=${symbol}`,
-                            parseResponse: (data) => data
-                        },
-                        {
-                            name: 'CodeTabs',
-                            url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
-                            parseResponse: (data) => data
-                        }
-                    ];
-                    
-                    for (const proxy of externalProxies) {
-                        try {
-                            console.log(`🔄 Trying ${proxy.name} proxy...`);
-                            
-                            const response = await fetch(proxy.url, {
-                                method: 'GET',
-                                headers: {
-                                    'Accept': 'application/json'
-                                }
-                            });
-                            
-                            if (response.ok) {
-                                const rawData = await response.json();
-                                const data = proxy.parseResponse(rawData);
-                                console.log(`✅ ${proxy.name} proxy SUCCESS:`, data);
-                                
-                                if (data && (data.info || data.priceInfo)) {
-                                    const info = data.info || {};
-                                    const priceInfo = data.priceInfo || {};
-                                    const securityInfo = data.securityInfo || {};
-                                    const preOpenMarket = data.preOpenMarket || {};
-                                    const metadata = data.metadata || {};
-                                    const industryInfo = data.industryInfo || {};
-                                    
-                                    // Calculate market cap: lastPrice * issuedSize
-                                    const lastPrice = priceInfo.lastPrice || 0;
-                                    const issuedSize = securityInfo.issuedSize || 0;
-                                    const marketCap = lastPrice * issuedSize;
-                                    
-                                    // Use pre-market volume if available, otherwise 0
-                                    const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
-                                    
-                                    // PE Ratio calculations
-                                    const currentPE = metadata.pdSymbolPe || 0;
-                                    const sectorPE = metadata.pdSectorPe || 0;
-                                    const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
-                                    const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
-                                    
-                                    // Calculate PE at 52-week high and low
-                                    const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
-                                    const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
-                                    
-                                    // Extract sector information
-                                    const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
-                                    
-                                    return {
-                                        symbol: symbol,
-                                        companyName: info.companyName || info.symbol || symbol,
-                                        sector: sector,
-                                        lastPrice: lastPrice,
-                                        change: priceInfo.change || 0,
-                                        pChange: priceInfo.pChange || 0,
-                                        dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
-                                        dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
-                                        weekHigh52: weekHigh52,
-                                        weekLow52: weekLow52,
-                                        totalTradedVolume: totalTradedVolume,
-                                        marketCap: marketCap,
-                                        currentPE: currentPE,
-                                        sectorPE: sectorPE,
-                                        peAtHigh: peAtHigh,
-                                        peAtLow: peAtLow,
-                                        lastUpdated: new Date().toLocaleString() + ` (🌐 Live via ${proxy.name})`,
-                                        isLive: true
-                                    };
-                                }
-                            } else {
-                                console.warn(`⚠️ ${proxy.name} proxy failed: HTTP ${response.status}`);
-                            }
-                        } catch (externalProxyError) {
-                            console.warn(`⚠️ ${proxy.name} proxy error:`, externalProxyError.message);
-                        }
-                    }
-                    
-                    // Method 3: Try direct NSE API (requires CORS extension)
-                    console.log(`🔄 Trying direct NSE API for ${symbol}...`);
-                    try {
-                        const directResponse = await fetch(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`, {
-                            method: 'GET',
-                            headers: {
-                                'Accept': 'application/json',
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                            }
-                        });
-                        
-                        if (directResponse.ok) {
-                            const data = await directResponse.json();
-                            console.log(`✅ Direct NSE API SUCCESS for ${symbol}:`, data);
-                            
-                            if (data && (data.info || data.priceInfo)) {
-                                const info = data.info || {};
-                                const priceInfo = data.priceInfo || {};
-                                const securityInfo = data.securityInfo || {};
-                                const preOpenMarket = data.preOpenMarket || {};
-                                const metadata = data.metadata || {};
-                                const industryInfo = data.industryInfo || {};
-                                
-                                // Calculate market cap: lastPrice * issuedSize
-                                const lastPrice = priceInfo.lastPrice || 0;
-                                const issuedSize = securityInfo.issuedSize || 0;
-                                const marketCap = lastPrice * issuedSize;
-                                
-                                // Use pre-market volume if available, otherwise 0
-                                const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
-                                
-                                // PE Ratio calculations
-                                const currentPE = metadata.pdSymbolPe || 0;
-                                const sectorPE = metadata.pdSectorPe || 0;
-                                const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
-                                const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
-                                
-                                // Calculate PE at 52-week high and low
-                                const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
-                                const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
-                                
-                                // Extract sector information
-                                const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
-                                
-                                return {
-                                    symbol: symbol,
-                                    companyName: info.companyName || info.symbol || symbol,
-                                    sector: sector,
-                                    lastPrice: lastPrice,
-                                    change: priceInfo.change || 0,
-                                    pChange: priceInfo.pChange || 0,
-                                    dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
-                                    dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
-                                    weekHigh52: weekHigh52,
-                                    weekLow52: weekLow52,
-                                    totalTradedVolume: totalTradedVolume,
-                                    marketCap: marketCap,
-                                    currentPE: currentPE,
-                                    sectorPE: sectorPE,
-                                    peAtHigh: peAtHigh,
-                                    peAtLow: peAtLow,
-                                    lastUpdated: new Date().toLocaleString() + ' (🟢 Live NSE Direct)',
-                                    isLive: true
-                                };
-                            }
-                        } else {
-                            console.warn(`⚠️ Direct NSE API failed: HTTP ${directResponse.status}`);
-                        }
-                    } catch (directError) {
-                        console.warn(`⚠️ Direct NSE API error:`, directError.message);
-                    }
-                    
-                    // If all methods fail, throw the original error
-                    throw proxyError;
                 }
+                
+                // Fallback to demo data
+                return getFallbackData(symbol);
                 
             } catch (error) {
-                console.error(`❌ Complete failure for ${symbol}:`, error);
-                
-                // Use fallback data if available
-                if (fallbackCompanyData[symbol]) {
-                    const fallback = fallbackCompanyData[symbol];
-                    return {
-                        symbol: symbol,
-                        companyName: fallback.companyName,
-                        lastPrice: fallback.lastPrice,
-                        change: 0,
-                        pChange: fallback.pChange,
-                        dayHigh: 0,
-                        dayLow: 0,
-                        weekHigh52: fallback.weekHigh52,
-                        weekLow52: fallback.weekLow52,
-                        totalTradedVolume: fallback.totalTradedVolume,
-                        marketCap: fallback.marketCap,
-                        lastUpdated: new Date().toLocaleString() + ' (📊 Demo Data)',
-                        fallback: true
-                    };
-                }
-                
-                return {
-                    symbol: symbol,
-                    companyName: symbol,
-                    lastPrice: 0,
-                    change: 0,
-                    pChange: 0,
-                    dayHigh: 0,
-                    dayLow: 0,
-                    weekHigh52: 0,
-                    weekLow52: 0,
-                    totalTradedVolume: 0,
-                    marketCap: 0,
-                    lastUpdated: new Date().toLocaleString() + ' (❌ Error)',
-                    error: true
-                };
+                console.error(`Error fetching ${symbol}:`, error);
+                return getFallbackData(symbol);
             }
         }
 
@@ -1451,7 +1123,7 @@
         async function loadCompaniesData() {
             if (!loadCompaniesConfig()) return;
             
-            updateCompaniesStatus("Attempting to load live data via batch API...", true);
+            updateCompaniesStatus("Loading data via optimized batch API...", true);
             
             const loadingDiv = document.getElementById('companiesLoading');
             const progressSpan = document.getElementById('loadingProgress');
@@ -1461,9 +1133,7 @@
             companiesData = [];
             
             try {
-                // Method 1: Try Vercel batch API
-                console.log('🔄 Trying Vercel batch API for', companiesConfig.length, 'companies');
-                updateCompaniesStatus(`Loading ${companiesConfig.length} companies via Vercel batch API...`, true);
+                console.log('🔄 Loading', companiesConfig.length, 'companies via batch API');
                 
                 const batchResponse = await fetch(`/api/nse-proxy?symbols=${companiesConfig.join(',')}`, {
                     method: 'GET',
@@ -1476,11 +1146,11 @@
                 
                 if (batchResponse.ok) {
                     const batchData = await batchResponse.json();
-                    console.log('✅ Vercel batch API SUCCESS:', batchData.meta);
+                    console.log('✅ Batch API SUCCESS:', batchData.meta);
                     
                     // Process batch response
                     let successCount = 0;
-                    let failCount = 0;
+                    let fallbackCount = 0;
                     
                     for (const symbol of companiesConfig) {
                         if (batchData.data[symbol]) {
@@ -1489,17 +1159,14 @@
                             const processedData = processNSEData(symbol, data, 'Vercel Batch');
                             companiesData.push(processedData);
                             successCount++;
-                        } else if (batchData.errors[symbol]) {
-                            // Error: Use fallback data
-                            console.warn(`❌ ${symbol} failed:`, batchData.errors[symbol]);
-                            const fallbackData = getFallbackData(symbol);
-                            companiesData.push(fallbackData);
-                            failCount++;
                         } else {
-                            // Missing: Use fallback
+                            // Failed: Use demo data
+                            if (batchData.errors[symbol]) {
+                                console.warn(`❌ ${symbol} failed:`, batchData.errors[symbol]);
+                            }
                             const fallbackData = getFallbackData(symbol);
                             companiesData.push(fallbackData);
-                            failCount++;
+                            fallbackCount++;
                         }
                     }
                     
@@ -1507,50 +1174,21 @@
                     renderCompaniesTable();
                     
                     if (successCount > 0) {
-                        updateCompaniesStatus(`✅ Batch API Success! ${successCount} live, ${failCount} fallback (${batchData.meta.duration})`, true);
+                        updateCompaniesStatus(`✅ Loaded! ${successCount} live, ${fallbackCount} demo (${batchData.meta.duration})`, true);
                     } else {
-                        updateCompaniesStatus(`⚠️ Batch API returned no data. All using fallback.`, false);
+                        updateCompaniesStatus(`⚠️ No live data available. Using demo data for all companies.`, false);
                     }
                     return;
                 }
                 
-                // If batch API failed, fall back to individual calls with external proxies
                 throw new Error(`Batch API failed with status ${batchResponse.status}`);
                 
             } catch (batchError) {
                 console.error('❌ Batch API failed:', batchError.message);
-                updateCompaniesStatus(`Batch API failed. Trying individual calls with external proxies...`, true);
                 
-                // Fallback: Individual calls with external proxies
-                let successCount = 0;
-                let failCount = 0;
-                
-                for (let i = 0; i < companiesConfig.length; i++) {
-                    const symbol = companiesConfig[i];
-                    progressSpan.textContent = `${i + 1}/${companiesConfig.length} (fallback)`;
-                    updateCompaniesStatus(`Loading via external proxies... ${i + 1}/${companiesConfig.length} (${successCount} success, ${failCount} failed)`, true);
-                    
-                    const companyData = await fetchCompanyDataFallback(symbol);
-                    companiesData.push(companyData);
-                    
-                    if (companyData.error) {
-                        failCount++;
-                    } else if (!companyData.fallback) {
-                        successCount++;
-                    }
-                    
-                    // Small delay to avoid rate limiting
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                }
-                
-                loadingDiv.style.display = 'none';
-                renderCompaniesTable();
-                
-                if (successCount > 0) {
-                    updateCompaniesStatus(`External proxies: ${successCount} live, ${companiesData.length - successCount - failCount} demo, ${failCount} failed`, true);
-                } else {
-                    updateCompaniesStatus(`All APIs failed. Using demo data. Try browser CORS extension.`, false);
-                }
+                // Fallback: Use demo data for all companies
+                updateCompaniesStatus(`Batch API failed. Loading demo data...`, false);
+                loadDemoCompaniesData();
             }
         }
 
