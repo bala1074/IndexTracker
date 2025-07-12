@@ -384,14 +384,14 @@
             </div>
             
             <div id="companiesLoading" class="loading" style="display: none;">
-                <div>Loading company data... <span id="loadingProgress">0/0</span></div>
+                <div>📡 <span id="loadingProgress">Loading...</span></div>
             </div>
             
             <div class="section">
                 <h2>🏢 Companies Data</h2>
                 <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin-bottom: 10px; font-size: 12px;">
-                    <strong>Data Sources:</strong> 
-                    🚀 Live via Vercel Proxy | 🟢 Live NSE Data | 🌐 Live via External Proxy | 📊 Demo Data | ❌ Error/Missing
+                    <strong>⚡ Optimized Batch Loading:</strong> 
+                    🚀 Vercel Batch API (20+ companies in 1 call) | 🌐 External Proxy Fallback | 📊 Demo Data | ❌ Error/Missing
                 </div>
 
                 <table id="companiesTable" class="display">
@@ -992,17 +992,167 @@
             "POWERGRID": { companyName: "Power Grid Corp", sector: "Power", lastPrice: 320, pChange: 0.25, weekHigh52: 380, weekLow52: 250, totalTradedVolume: 1500000, marketCap: 30000000000, currentPE: 12.5, sectorPE: 15.8 }
         };
 
-        // Fetch company data using Vercel API proxy (no CORS issues!)
+        // Helper function to process NSE API data
+        function processNSEData(symbol, data, source) {
+            const info = data.info || {};
+            const priceInfo = data.priceInfo || {};
+            const securityInfo = data.securityInfo || {};
+            const preOpenMarket = data.preOpenMarket || {};
+            const metadata = data.metadata || {};
+            const industryInfo = data.industryInfo || {};
+            
+            // Calculate market cap: lastPrice * issuedSize
+            const lastPrice = priceInfo.lastPrice || 0;
+            const issuedSize = securityInfo.issuedSize || 0;
+            const marketCap = lastPrice * issuedSize;
+            
+            // Use pre-market volume if available, otherwise 0
+            const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
+            
+            // PE Ratio calculations
+            const currentPE = metadata.pdSymbolPe || 0;
+            const sectorPE = metadata.pdSectorPe || 0;
+            const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
+            const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
+            
+            // Calculate PE at 52-week high and low
+            const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
+            const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
+            
+            // Extract sector information
+            const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
+            
+            return {
+                symbol: symbol,
+                companyName: info.companyName || info.symbol || symbol,
+                sector: sector,
+                lastPrice: lastPrice,
+                change: priceInfo.change || 0,
+                pChange: priceInfo.pChange || 0,
+                dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
+                dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
+                weekHigh52: weekHigh52,
+                weekLow52: weekLow52,
+                totalTradedVolume: totalTradedVolume,
+                marketCap: marketCap,
+                currentPE: currentPE,
+                sectorPE: sectorPE,
+                peAtHigh: peAtHigh,
+                peAtLow: peAtLow,
+                lastUpdated: new Date().toLocaleString() + ` (🚀 Live via ${source})`,
+                isLive: true
+            };
+        }
+        
+        // Helper function to get fallback data
+        function getFallbackData(symbol) {
+            const fallback = fallbackCompanyData[symbol];
+            if (fallback) {
+                // Calculate PE at 52-week high and low
+                const currentPE = fallback.currentPE || 0;
+                const peAtHigh = currentPE > 0 && fallback.weekHigh52 > 0 ? (currentPE * fallback.weekHigh52 / fallback.lastPrice) : 0;
+                const peAtLow = currentPE > 0 && fallback.weekLow52 > 0 ? (currentPE * fallback.weekLow52 / fallback.lastPrice) : 0;
+                
+                return {
+                    symbol: symbol,
+                    companyName: fallback.companyName,
+                    sector: fallback.sector || 'Unknown',
+                    lastPrice: fallback.lastPrice,
+                    change: 0,
+                    pChange: fallback.pChange,
+                    dayHigh: 0,
+                    dayLow: 0,
+                    weekHigh52: fallback.weekHigh52,
+                    weekLow52: fallback.weekLow52,
+                    totalTradedVolume: fallback.totalTradedVolume,
+                    marketCap: fallback.marketCap,
+                    currentPE: currentPE,
+                    sectorPE: fallback.sectorPE || 0,
+                    peAtHigh: peAtHigh,
+                    peAtLow: peAtLow,
+                    lastUpdated: new Date().toLocaleString() + ' (📊 Demo Data)',
+                    fallback: true
+                };
+            }
+            return {
+                symbol: symbol,
+                companyName: symbol,
+                sector: 'Unknown',
+                lastPrice: 0,
+                pChange: 0,
+                weekHigh52: 0,
+                weekLow52: 0,
+                totalTradedVolume: 0,
+                marketCap: 0,
+                currentPE: 0,
+                sectorPE: 0,
+                peAtHigh: 0,
+                peAtLow: 0,
+                lastUpdated: new Date().toLocaleString() + ' (❌ Error)',
+                error: true
+            };
+        }
+        
+        // Fallback function for individual external proxy calls
+        async function fetchCompanyDataFallback(symbol) {
+            try {
+                // Try external proxy services only
+                const externalProxies = [
+                    {
+                        name: 'AllOrigins',
+                        url: `https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
+                        parseResponse: (data) => JSON.parse(data.contents)
+                    },
+                    {
+                        name: 'CORS.io',
+                        url: `https://corsproxy.io/?https://www.nseindia.com/api/quote-equity?symbol=${symbol}`,
+                        parseResponse: (data) => data
+                    },
+                    {
+                        name: 'CodeTabs',
+                        url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
+                        parseResponse: (data) => data
+                    }
+                ];
+                
+                for (const proxy of externalProxies) {
+                    try {
+                        const response = await fetch(proxy.url, {
+                            method: 'GET',
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        
+                        if (response.ok) {
+                            const rawData = await response.json();
+                            const data = proxy.parseResponse(rawData);
+                            
+                            if (data && (data.info || data.priceInfo)) {
+                                return processNSEData(symbol, data, proxy.name);
+                            }
+                        }
+                    } catch (proxyError) {
+                        console.warn(`${proxy.name} failed for ${symbol}:`, proxyError.message);
+                    }
+                }
+                
+                // If all proxies fail, return fallback data
+                return getFallbackData(symbol);
+                
+            } catch (error) {
+                console.error(`Complete failure for ${symbol}:`, error);
+                return getFallbackData(symbol);
+            }
+        }
+
+        // Fetch company data using multiple proxy methods
         async function fetchCompanyData(symbol) {
             try {
-                console.log(`Fetching data for ${symbol} via Vercel API proxy`);
+                console.log(`Fetching data for ${symbol} via multiple proxy methods`);
                 
-                // Use Vercel API proxy endpoint
-                const proxyUrl = `/api/nse-proxy?symbol=${symbol}&endpoint=quote`;
-                
+                // Method 1: Try Vercel API proxy first
                 try {
                     console.log(`🔄 Trying Vercel API proxy for ${symbol}...`);
-                    console.log('URL:', proxyUrl);
+                    const proxyUrl = `/api/nse-proxy?symbol=${symbol}&endpoint=quote`;
                     
                     const response = await fetch(proxyUrl, {
                         method: 'GET',
@@ -1076,7 +1226,7 @@
                         console.error(`❌ Vercel API failed with status ${response.status}:`, errorData);
                         
                         if (response.status === 401) {
-                            console.log('🔐 NSE API requires authentication (even through proxy)');
+                            console.log('🔐 NSE API requires authentication - trying external proxies...');
                             throw new Error(`NSE API authentication required: ${errorData.details || 'Session cookies needed'}`);
                         } else {
                             throw new Error(`Vercel API HTTP ${response.status}: ${errorData.error || 'Unknown error'}`);
@@ -1085,7 +1235,7 @@
                 } catch (proxyError) {
                     console.error(`❌ Vercel API Error for ${symbol}:`, proxyError);
                     
-                    // Fall back to external proxies if Vercel proxy fails
+                    // Method 2: Try external proxy services
                     console.log(`🔄 Trying external proxy services for ${symbol}...`);
                     
                     const externalProxies = [
@@ -1097,6 +1247,11 @@
                         {
                             name: 'CORS.io',
                             url: `https://corsproxy.io/?https://www.nseindia.com/api/quote-equity?symbol=${symbol}`,
+                            parseResponse: (data) => data
+                        },
+                        {
+                            name: 'CodeTabs',
+                            url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`)}`,
                             parseResponse: (data) => data
                         }
                     ];
@@ -1175,6 +1330,79 @@
                         }
                     }
                     
+                    // Method 3: Try direct NSE API (requires CORS extension)
+                    console.log(`🔄 Trying direct NSE API for ${symbol}...`);
+                    try {
+                        const directResponse = await fetch(`https://www.nseindia.com/api/quote-equity?symbol=${symbol}`, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            }
+                        });
+                        
+                        if (directResponse.ok) {
+                            const data = await directResponse.json();
+                            console.log(`✅ Direct NSE API SUCCESS for ${symbol}:`, data);
+                            
+                            if (data && (data.info || data.priceInfo)) {
+                                const info = data.info || {};
+                                const priceInfo = data.priceInfo || {};
+                                const securityInfo = data.securityInfo || {};
+                                const preOpenMarket = data.preOpenMarket || {};
+                                const metadata = data.metadata || {};
+                                const industryInfo = data.industryInfo || {};
+                                
+                                // Calculate market cap: lastPrice * issuedSize
+                                const lastPrice = priceInfo.lastPrice || 0;
+                                const issuedSize = securityInfo.issuedSize || 0;
+                                const marketCap = lastPrice * issuedSize;
+                                
+                                // Use pre-market volume if available, otherwise 0
+                                const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
+                                
+                                // PE Ratio calculations
+                                const currentPE = metadata.pdSymbolPe || 0;
+                                const sectorPE = metadata.pdSectorPe || 0;
+                                const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
+                                const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
+                                
+                                // Calculate PE at 52-week high and low
+                                const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
+                                const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
+                                
+                                // Extract sector information
+                                const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
+                                
+                                return {
+                                    symbol: symbol,
+                                    companyName: info.companyName || info.symbol || symbol,
+                                    sector: sector,
+                                    lastPrice: lastPrice,
+                                    change: priceInfo.change || 0,
+                                    pChange: priceInfo.pChange || 0,
+                                    dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
+                                    dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
+                                    weekHigh52: weekHigh52,
+                                    weekLow52: weekLow52,
+                                    totalTradedVolume: totalTradedVolume,
+                                    marketCap: marketCap,
+                                    currentPE: currentPE,
+                                    sectorPE: sectorPE,
+                                    peAtHigh: peAtHigh,
+                                    peAtLow: peAtLow,
+                                    lastUpdated: new Date().toLocaleString() + ' (🟢 Live NSE Direct)',
+                                    isLive: true
+                                };
+                            }
+                        } else {
+                            console.warn(`⚠️ Direct NSE API failed: HTTP ${directResponse.status}`);
+                        }
+                    } catch (directError) {
+                        console.warn(`⚠️ Direct NSE API error:`, directError.message);
+                    }
+                    
+                    // If all methods fail, throw the original error
                     throw proxyError;
                 }
                 
@@ -1219,46 +1447,110 @@
             }
         }
 
-        // Load companies data
+        // Load companies data using batch API call
         async function loadCompaniesData() {
             if (!loadCompaniesConfig()) return;
             
-            updateCompaniesStatus("Attempting to load live data...", true);
+            updateCompaniesStatus("Attempting to load live data via batch API...", true);
             
             const loadingDiv = document.getElementById('companiesLoading');
             const progressSpan = document.getElementById('loadingProgress');
             
             loadingDiv.style.display = 'block';
+            progressSpan.textContent = `Batch loading ${companiesConfig.length} companies...`;
             companiesData = [];
-            let successCount = 0;
-            let failCount = 0;
             
-            for (let i = 0; i < companiesConfig.length; i++) {
-                const symbol = companiesConfig[i];
-                progressSpan.textContent = `${i + 1}/${companiesConfig.length}`;
-                updateCompaniesStatus(`Loading live data... ${i + 1}/${companiesConfig.length} (${successCount} success, ${failCount} failed)`, true);
+            try {
+                // Method 1: Try Vercel batch API
+                console.log('🔄 Trying Vercel batch API for', companiesConfig.length, 'companies');
+                updateCompaniesStatus(`Loading ${companiesConfig.length} companies via Vercel batch API...`, true);
                 
-                const companyData = await fetchCompanyData(symbol);
-                companiesData.push(companyData);
+                const batchResponse = await fetch(`/api/nse-proxy?symbols=${companiesConfig.join(',')}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
                 
-                if (companyData.error) {
-                    failCount++;
-                } else if (!companyData.fallback) {
-                    successCount++;
+                console.log(`Batch API Response Status: ${batchResponse.status}`);
+                
+                if (batchResponse.ok) {
+                    const batchData = await batchResponse.json();
+                    console.log('✅ Vercel batch API SUCCESS:', batchData.meta);
+                    
+                    // Process batch response
+                    let successCount = 0;
+                    let failCount = 0;
+                    
+                    for (const symbol of companiesConfig) {
+                        if (batchData.data[symbol]) {
+                            // Success: Process NSE data
+                            const data = batchData.data[symbol];
+                            const processedData = processNSEData(symbol, data, 'Vercel Batch');
+                            companiesData.push(processedData);
+                            successCount++;
+                        } else if (batchData.errors[symbol]) {
+                            // Error: Use fallback data
+                            console.warn(`❌ ${symbol} failed:`, batchData.errors[symbol]);
+                            const fallbackData = getFallbackData(symbol);
+                            companiesData.push(fallbackData);
+                            failCount++;
+                        } else {
+                            // Missing: Use fallback
+                            const fallbackData = getFallbackData(symbol);
+                            companiesData.push(fallbackData);
+                            failCount++;
+                        }
+                    }
+                    
+                    loadingDiv.style.display = 'none';
+                    renderCompaniesTable();
+                    
+                    if (successCount > 0) {
+                        updateCompaniesStatus(`✅ Batch API Success! ${successCount} live, ${failCount} fallback (${batchData.meta.duration})`, true);
+                    } else {
+                        updateCompaniesStatus(`⚠️ Batch API returned no data. All using fallback.`, false);
+                    }
+                    return;
                 }
                 
-                // Add small delay to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-            
-            loadingDiv.style.display = 'none';
-            renderCompaniesTable();
-            
-            // Update final status
-            if (successCount > 0) {
-                updateCompaniesStatus(`Live data loaded! ${successCount} live, ${companiesData.length - successCount - failCount} demo, ${failCount} failed`, true);
-            } else {
-                updateCompaniesStatus(`Live data failed. Using demo data. Try alternative APIs or check CORS settings.`, false);
+                // If batch API failed, fall back to individual calls with external proxies
+                throw new Error(`Batch API failed with status ${batchResponse.status}`);
+                
+            } catch (batchError) {
+                console.error('❌ Batch API failed:', batchError.message);
+                updateCompaniesStatus(`Batch API failed. Trying individual calls with external proxies...`, true);
+                
+                // Fallback: Individual calls with external proxies
+                let successCount = 0;
+                let failCount = 0;
+                
+                for (let i = 0; i < companiesConfig.length; i++) {
+                    const symbol = companiesConfig[i];
+                    progressSpan.textContent = `${i + 1}/${companiesConfig.length} (fallback)`;
+                    updateCompaniesStatus(`Loading via external proxies... ${i + 1}/${companiesConfig.length} (${successCount} success, ${failCount} failed)`, true);
+                    
+                    const companyData = await fetchCompanyDataFallback(symbol);
+                    companiesData.push(companyData);
+                    
+                    if (companyData.error) {
+                        failCount++;
+                    } else if (!companyData.fallback) {
+                        successCount++;
+                    }
+                    
+                    // Small delay to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+                
+                loadingDiv.style.display = 'none';
+                renderCompaniesTable();
+                
+                if (successCount > 0) {
+                    updateCompaniesStatus(`External proxies: ${successCount} live, ${companiesData.length - successCount - failCount} demo, ${failCount} failed`, true);
+                } else {
+                    updateCompaniesStatus(`All APIs failed. Using demo data. Try browser CORS extension.`, false);
+                }
             }
         }
 
