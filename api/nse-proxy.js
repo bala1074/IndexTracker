@@ -53,12 +53,22 @@ export default async function handler(req, res) {
     
     console.log(`Processing ${symbols.length} symbols: ${symbols.join(', ')}`);
     
+    // Helper function to create requests with timeout
+    function fetchWithTimeout(url, options, timeoutMs = 10000) {
+      return Promise.race([
+        fetch(url, options),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+        )
+      ]);
+    }
+    
     // Step 1: Establish session cookies once for all requests
     console.log('Establishing NSE session...');
     let sessionCookies = '';
     
     try {
-      const sessionResponse = await fetch('https://www.nseindia.com/', {
+      const sessionResponse = await fetchWithTimeout('https://www.nseindia.com/', {
         method: 'GET',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -72,13 +82,14 @@ export default async function handler(req, res) {
           'Sec-Fetch-Site': 'none',
           'Cache-Control': 'no-cache'
         }
-      });
+      }, 8000); // 8 second timeout for session establishment
       
       sessionCookies = sessionResponse.headers.get('set-cookie') || '';
       console.log(`Session established: ${sessionCookies ? 'Cookies received' : 'No cookies'}`);
       
     } catch (error) {
       console.error('Failed to establish session:', error.message);
+      // Continue without session cookies - some requests might still work
     }
     
     // Function to fetch data for a single symbol using shared session
@@ -87,8 +98,8 @@ export default async function handler(req, res) {
         const targetUrl = `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`;
         console.log(`Fetching ${symbol} from: ${targetUrl}`);
         
-        // Step 2: Make the actual API request with shared session cookies
-        const response = await fetch(targetUrl, {
+        // Step 2: Make the actual API request with shared session cookies and timeout
+        const response = await fetchWithTimeout(targetUrl, {
           method: 'GET',
           headers: {
             'Accept': '*/*',
@@ -105,7 +116,7 @@ export default async function handler(req, res) {
             'Sec-Fetch-Site': 'same-origin',
             'Cookie': sessionCookies
           }
-        });
+        }, 12000); // 12 second timeout for individual API calls
         
         console.log(`${symbol}: Response ${response.status}`);
         
@@ -140,18 +151,63 @@ export default async function handler(req, res) {
       }
     }
     
-    // Make parallel requests for all symbols
-    console.log('Starting parallel requests...');
+    // Make parallel requests for all symbols with chunking to prevent timeout
+    console.log('Starting batch requests...');
     const startTime = Date.now();
+    const MAX_CONCURRENT = 8; // Limit concurrent requests to prevent overwhelming NSE
+    const MAX_PROCESSING_TIME = 45000; // 45 second max processing time
     
-    const results = await Promise.all(
-      symbols.map(symbol => fetchSingleSymbol(symbol))
-    );
+    const results = [];
+    
+    // Process symbols in chunks to avoid timeout
+    for (let i = 0; i < symbols.length; i += MAX_CONCURRENT) {
+      const chunk = symbols.slice(i, i + MAX_CONCURRENT);
+      const chunkStartTime = Date.now();
+      
+      // Check if we're approaching timeout
+      if (Date.now() - startTime > MAX_PROCESSING_TIME) {
+        console.log(`Timeout approaching, stopping at ${i}/${symbols.length} symbols`);
+        // Add timeout errors for remaining symbols
+        for (let j = i; j < symbols.length; j++) {
+          results.push({
+            symbol: symbols[j],
+            success: false,
+            error: 'Processing timeout - request cancelled to avoid Vercel timeout',
+            timestamp: new Date().toISOString()
+          });
+        }
+        break;
+      }
+      
+      console.log(`Processing chunk ${Math.floor(i/MAX_CONCURRENT) + 1}: ${chunk.join(', ')}`);
+      
+      try {
+        const chunkResults = await Promise.all(
+          chunk.map(symbol => fetchSingleSymbol(symbol))
+        );
+        results.push(...chunkResults);
+        
+        const chunkDuration = Date.now() - chunkStartTime;
+        console.log(`Chunk completed in ${chunkDuration}ms`);
+        
+      } catch (error) {
+        console.error(`Chunk failed:`, error.message);
+        // Add error results for this chunk
+        chunk.forEach(symbol => {
+          results.push({
+            symbol: symbol,
+            success: false,
+            error: `Chunk processing failed: ${error.message}`,
+            timestamp: new Date().toISOString()
+          });
+        });
+      }
+    }
     
     const endTime = Date.now();
     const duration = endTime - startTime;
     
-    console.log(`Completed ${symbols.length} requests in ${duration}ms`);
+    console.log(`Completed ${results.length}/${symbols.length} requests in ${duration}ms`);
     
     // Process results
     const successful = results.filter(r => r.success);
