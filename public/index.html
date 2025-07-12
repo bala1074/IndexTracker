@@ -261,7 +261,7 @@
                 </div>
             </div>
             
-            <button class="refresh-btn" onclick="fetchAndRender()">🔄 Refresh Now</button>
+
         </div>
 
         <div class="status">
@@ -364,12 +364,6 @@
                 <button class="refresh-btn" onclick="saveCompaniesConfig()" style="background: #6c757d;">💾 Save Config</button>
                 <button class="refresh-btn" onclick="testCompaniesData()" style="background: #17a2b8;">🧪 Test Function</button>
                 <button class="refresh-btn" onclick="clearDemoData()" style="background: #dc3545;">🗑️ Clear Demo Data</button>
-                <button class="refresh-btn" onclick="testNSEAPI()" style="background: #20c997;">🧪 Test Vercel API (RELIANCE)</button>
-                <button class="refresh-btn" onclick="testCORSSolutions()" style="background: #fd7e14;">🔧 Test CORS Solutions</button>
-                <button class="refresh-btn" onclick="checkCORSStatus()" style="background: #6610f2;">⚡ Quick CORS Check</button>
-                <button class="refresh-btn" onclick="runComprehensiveDiagnostics()" style="background: #e83e8c;">🔍 Full Diagnostics</button>
-                <button class="refresh-btn" onclick="openNSEWebsite()" style="background: #17a2b8;">🍪 Get NSE Session</button>
-                <button class="refresh-btn" onclick="testSessionCookies()" style="background: #28a745;">✅ Test Session</button>
                 <br><br>
                 <div class="checkbox-container">
                     <input type="checkbox" id="autoLoadLiveData">
@@ -386,36 +380,7 @@
                 <div id="companiesStatus" style="background: #d1ecf1; padding: 10px; border-radius: 5px; border: 1px solid #bee5eb; margin-bottom: 10px;">
                     <strong>Status:</strong> <span id="companiesStatusText">Ready to load data</span>
                 </div>
-                <div style="background: #d4edda; padding: 10px; border-radius: 5px; border: 1px solid #c3e6cb; margin-bottom: 10px;">
-                    <strong>🚀 Vercel API Proxy Ready!</strong><br>
-                    This version uses Vercel serverless functions to proxy NSE API calls, completely eliminating CORS issues. No browser extensions needed!<br><br>
-                    <strong>Ready to use:</strong> Click "🔄 Load Live Data" to fetch real-time NSE data through the Vercel proxy.
-                </div>
-                
-                <div style="background: #d4edda; padding: 10px; border-radius: 5px; border: 1px solid #c3e6cb;">
-                    <strong>✅ CORS Solutions (Choose One):</strong><br>
-                    
-                    <strong>🔧 Browser Extension (Easiest):</strong><br>
-                    • Install "CORS Unblock" or "CORS Everywhere" browser extension<br>
-                    • Enable it and refresh this page<br>
-                    • Direct NSE API calls will now work<br><br>
-                    
-                    <strong>🍪 Session Cookie Method (Recommended):</strong><br>
-                    • Click "🍪 Get NSE Session" to visit NSE website<br>
-                    • Wait for NSE website to fully load<br>
-                    • Return here and click "✅ Test Session" to verify<br>
-                    • Then try "🔄 Load Live Data" for real data<br><br>
-                    
-                    <strong>🌐 Use CORS Proxies (Current Method):</strong><br>
-                    • System automatically tries proxy services<br>
-                    • Click "🔧 Test CORS Solutions" to see which work<br>
-                    • May be slower than direct API<br><br>
-                    
-                    <strong>🖥️ Server Deployment:</strong><br>
-                    • Deploy to web server (not file:// or localhost)<br>
-                    • Create backend API proxy<br>
-                    • Most reliable solution for production
-                </div>
+
             </div>
             
             <div id="companiesLoading" class="loading" style="display: none;">
@@ -428,20 +393,23 @@
                     <strong>Data Sources:</strong> 
                     🚀 Live via Vercel Proxy | 🟢 Live NSE Data | 🌐 Live via External Proxy | 📊 Demo Data | ❌ Error/Missing
                 </div>
+
                 <table id="companiesTable" class="display">
                     <thead>
                         <tr>
-                            <th>Company Name</th>
-                            <th>Symbol</th>
-                            <th>Last Price</th>
-                            <th>Change %</th>
+                            <th>Company (Symbol)</th>
+                            <th>Sector</th>
+                            <th>Price (Change %)</th>
                             <th>Year High</th>
                             <th>Year Low</th>
                             <th>Distance to High</th>
                             <th>Distance from Low</th>
                             <th>Risk/Reward</th>
-                            <th>Volume</th>
-                            <th>Market Cap</th>
+                            <th>PE Risk/Reward</th>
+                            <th>Overall Score</th>
+                            <th>Current PE</th>
+                            <th>PE at High</th>
+                            <th>PE at Low</th>
                             <th>Last Updated</th>
                         </tr>
                     </thead>
@@ -544,7 +512,7 @@
                 if ($.fn.dataTable.isDataTable(table)) {
                     table.DataTable().destroy();
                 }
-                table.find('tbody')[0].innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #666;">No live data available. Click "Load Live Data" to fetch real data.</td></tr>';
+                table.find('tbody')[0].innerHTML = '<tr><td colspan="14" style="text-align: center; padding: 20px; color: #666;">No live data available. Click "Load Live Data" to fetch real data.</td></tr>';
             } else {
                 renderCompaniesTable();
                 updateCompaniesStatus(`Showing ${companiesData.length} companies with live data only`, true);
@@ -1002,26 +970,26 @@
 
         // Fallback company data for demo
         const fallbackCompanyData = {
-            "TCS": { companyName: "Tata Consultancy Services", lastPrice: 3580, pChange: 0.45, weekHigh52: 4100, weekLow52: 3000, totalTradedVolume: 1500000, marketCap: 130000000000 },
-            "RELIANCE": { companyName: "Reliance Industries", lastPrice: 2850, pChange: -0.35, weekHigh52: 3100, weekLow52: 2200, totalTradedVolume: 2000000, marketCap: 190000000000 },
-            "HDFCBANK": { companyName: "HDFC Bank", lastPrice: 1680, pChange: 0.25, weekHigh52: 1800, weekLow52: 1350, totalTradedVolume: 1800000, marketCap: 130000000000 },
-            "INFY": { companyName: "Infosys", lastPrice: 1750, pChange: 0.15, weekHigh52: 1950, weekLow52: 1350, totalTradedVolume: 1200000, marketCap: 72000000000 },
-            "HINDUNILVR": { companyName: "Hindustan Unilever", lastPrice: 2650, pChange: -0.12, weekHigh52: 2900, weekLow52: 2200, totalTradedVolume: 800000, marketCap: 62000000000 },
-            "ICICIBANK": { companyName: "ICICI Bank", lastPrice: 1180, pChange: 0.38, weekHigh52: 1300, weekLow52: 900, totalTradedVolume: 2200000, marketCap: 82000000000 },
-            "SBIN": { companyName: "State Bank of India", lastPrice: 820, pChange: 0.52, weekHigh52: 900, weekLow52: 550, totalTradedVolume: 3000000, marketCap: 73000000000 },
-            "BHARTIARTL": { companyName: "Bharti Airtel", lastPrice: 1520, pChange: -0.28, weekHigh52: 1700, weekLow52: 1100, totalTradedVolume: 1600000, marketCap: 85000000000 },
-            "ITC": { companyName: "ITC Limited", lastPrice: 480, pChange: 0.18, weekHigh52: 520, weekLow52: 380, totalTradedVolume: 2500000, marketCap: 60000000000 },
-            "KOTAKBANK": { companyName: "Kotak Mahindra Bank", lastPrice: 1850, pChange: 0.22, weekHigh52: 2100, weekLow52: 1500, totalTradedVolume: 900000, marketCap: 36000000000 },
-            "LT": { companyName: "Larsen & Toubro", lastPrice: 3650, pChange: 0.45, weekHigh52: 4000, weekLow52: 2800, totalTradedVolume: 700000, marketCap: 51000000000 },
-            "ASIANPAINT": { companyName: "Asian Paints", lastPrice: 3200, pChange: -0.15, weekHigh52: 3700, weekLow52: 2800, totalTradedVolume: 600000, marketCap: 31000000000 },
-            "AXISBANK": { companyName: "Axis Bank", lastPrice: 1150, pChange: 0.35, weekHigh52: 1350, weekLow52: 850, totalTradedVolume: 1800000, marketCap: 35000000000 },
-            "MARUTI": { companyName: "Maruti Suzuki", lastPrice: 11500, pChange: 0.28, weekHigh52: 13000, weekLow52: 9500, totalTradedVolume: 400000, marketCap: 35000000000 },
-            "SUNPHARMA": { companyName: "Sun Pharmaceutical", lastPrice: 1720, pChange: -0.18, weekHigh52: 1900, weekLow52: 1200, totalTradedVolume: 1100000, marketCap: 41000000000 },
-            "TITAN": { companyName: "Titan Company", lastPrice: 3350, pChange: 0.42, weekHigh52: 3800, weekLow52: 2800, totalTradedVolume: 800000, marketCap: 30000000000 },
-            "ULTRACEMCO": { companyName: "UltraTech Cement", lastPrice: 10200, pChange: 0.15, weekHigh52: 11500, weekLow52: 8500, totalTradedVolume: 200000, marketCap: 30000000000 },
-            "NESTLEIND": { companyName: "Nestle India", lastPrice: 2450, pChange: -0.08, weekHigh52: 2800, weekLow52: 2100, totalTradedVolume: 300000, marketCap: 24000000000 },
-            "BAJFINANCE": { companyName: "Bajaj Finance", lastPrice: 6800, pChange: 0.65, weekHigh52: 8000, weekLow52: 5200, totalTradedVolume: 600000, marketCap: 42000000000 },
-            "POWERGRID": { companyName: "Power Grid Corp", lastPrice: 320, pChange: 0.25, weekHigh52: 380, weekLow52: 250, totalTradedVolume: 1500000, marketCap: 30000000000 }
+            "TCS": { companyName: "Tata Consultancy Services", sector: "Information Technology", lastPrice: 3580, pChange: 0.45, weekHigh52: 4100, weekLow52: 3000, totalTradedVolume: 1500000, marketCap: 130000000000, currentPE: 28.5, sectorPE: 25.2 },
+            "RELIANCE": { companyName: "Reliance Industries", sector: "Oil & Gas", lastPrice: 2850, pChange: -0.35, weekHigh52: 3100, weekLow52: 2200, totalTradedVolume: 2000000, marketCap: 190000000000, currentPE: 15.2, sectorPE: 18.7 },
+            "HDFCBANK": { companyName: "HDFC Bank", sector: "Financial Services", lastPrice: 1680, pChange: 0.25, weekHigh52: 1800, weekLow52: 1350, totalTradedVolume: 1800000, marketCap: 130000000000, currentPE: 18.5, sectorPE: 16.8 },
+            "INFY": { companyName: "Infosys", sector: "Information Technology", lastPrice: 1750, pChange: 0.15, weekHigh52: 1950, weekLow52: 1350, totalTradedVolume: 1200000, marketCap: 72000000000, currentPE: 27.8, sectorPE: 25.2 },
+            "HINDUNILVR": { companyName: "Hindustan Unilever", sector: "Consumer Goods", lastPrice: 2650, pChange: -0.12, weekHigh52: 2900, weekLow52: 2200, totalTradedVolume: 800000, marketCap: 62000000000, currentPE: 58.2, sectorPE: 45.6 },
+            "ICICIBANK": { companyName: "ICICI Bank", sector: "Financial Services", lastPrice: 1180, pChange: 0.38, weekHigh52: 1300, weekLow52: 900, totalTradedVolume: 2200000, marketCap: 82000000000, currentPE: 16.2, sectorPE: 16.8 },
+            "SBIN": { companyName: "State Bank of India", sector: "Financial Services", lastPrice: 820, pChange: 0.52, weekHigh52: 900, weekLow52: 550, totalTradedVolume: 3000000, marketCap: 73000000000, currentPE: 12.8, sectorPE: 16.8 },
+            "BHARTIARTL": { companyName: "Bharti Airtel", sector: "Telecommunications", lastPrice: 1520, pChange: -0.28, weekHigh52: 1700, weekLow52: 1100, totalTradedVolume: 1600000, marketCap: 85000000000, currentPE: 32.4, sectorPE: 28.5 },
+            "ITC": { companyName: "ITC Limited", sector: "Consumer Goods", lastPrice: 480, pChange: 0.18, weekHigh52: 520, weekLow52: 380, totalTradedVolume: 2500000, marketCap: 60000000000, currentPE: 28.6, sectorPE: 35.2 },
+            "KOTAKBANK": { companyName: "Kotak Mahindra Bank", sector: "Financial Services", lastPrice: 1850, pChange: 0.22, weekHigh52: 2100, weekLow52: 1500, totalTradedVolume: 900000, marketCap: 36000000000, currentPE: 20.5, sectorPE: 16.8 },
+            "LT": { companyName: "Larsen & Toubro", sector: "Construction", lastPrice: 3650, pChange: 0.45, weekHigh52: 4000, weekLow52: 2800, totalTradedVolume: 700000, marketCap: 51000000000, currentPE: 42.8, sectorPE: 38.5 },
+            "ASIANPAINT": { companyName: "Asian Paints", sector: "Chemicals", lastPrice: 3200, pChange: -0.15, weekHigh52: 3700, weekLow52: 2800, totalTradedVolume: 600000, marketCap: 31000000000, currentPE: 65.2, sectorPE: 48.7 },
+            "AXISBANK": { companyName: "Axis Bank", sector: "Financial Services", lastPrice: 1150, pChange: 0.35, weekHigh52: 1350, weekLow52: 850, totalTradedVolume: 1800000, marketCap: 35000000000, currentPE: 14.8, sectorPE: 16.8 },
+            "MARUTI": { companyName: "Maruti Suzuki", sector: "Automobile", lastPrice: 11500, pChange: 0.28, weekHigh52: 13000, weekLow52: 9500, totalTradedVolume: 400000, marketCap: 35000000000, currentPE: 25.8, sectorPE: 22.5 },
+            "SUNPHARMA": { companyName: "Sun Pharmaceutical", sector: "Healthcare", lastPrice: 1720, pChange: -0.18, weekHigh52: 1900, weekLow52: 1200, totalTradedVolume: 1100000, marketCap: 41000000000, currentPE: 35.2, sectorPE: 28.5 },
+            "TITAN": { companyName: "Titan Company", sector: "Consumer Goods", lastPrice: 3350, pChange: 0.42, weekHigh52: 3800, weekLow52: 2800, totalTradedVolume: 800000, marketCap: 30000000000, currentPE: 78.5, sectorPE: 65.2 },
+            "ULTRACEMCO": { companyName: "UltraTech Cement", sector: "Cement", lastPrice: 10200, pChange: 0.15, weekHigh52: 11500, weekLow52: 8500, totalTradedVolume: 200000, marketCap: 30000000000, currentPE: 18.2, sectorPE: 22.8 },
+            "NESTLEIND": { companyName: "Nestle India", sector: "Consumer Goods", lastPrice: 2450, pChange: -0.08, weekHigh52: 2800, weekLow52: 2100, totalTradedVolume: 300000, marketCap: 24000000000, currentPE: 82.5, sectorPE: 45.6 },
+            "BAJFINANCE": { companyName: "Bajaj Finance", sector: "Financial Services", lastPrice: 6800, pChange: 0.65, weekHigh52: 8000, weekLow52: 5200, totalTradedVolume: 600000, marketCap: 42000000000, currentPE: 32.8, sectorPE: 28.5 },
+            "POWERGRID": { companyName: "Power Grid Corp", sector: "Power", lastPrice: 320, pChange: 0.25, weekHigh52: 380, weekLow52: 250, totalTradedVolume: 1500000, marketCap: 30000000000, currentPE: 12.5, sectorPE: 15.8 }
         };
 
         // Fetch company data using Vercel API proxy (no CORS issues!)
@@ -1053,19 +1021,49 @@
                         if (data && (data.info || data.priceInfo)) {
                             const info = data.info || {};
                             const priceInfo = data.priceInfo || {};
+                            const securityInfo = data.securityInfo || {};
+                            const preOpenMarket = data.preOpenMarket || {};
+                            const metadata = data.metadata || {};
+                            const industryInfo = data.industryInfo || {};
+                            
+                            // Calculate market cap: lastPrice * issuedSize
+                            const lastPrice = priceInfo.lastPrice || 0;
+                            const issuedSize = securityInfo.issuedSize || 0;
+                            const marketCap = lastPrice * issuedSize;
+                            
+                            // Use pre-market volume if available, otherwise 0
+                            const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
+                            
+                            // PE Ratio calculations
+                            const currentPE = metadata.pdSymbolPe || 0;
+                            const sectorPE = metadata.pdSectorPe || 0;
+                            const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
+                            const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
+                            
+                            // Calculate PE at 52-week high and low
+                            const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
+                            const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
+                            
+                            // Extract sector information
+                            const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
                             
                             return {
                                 symbol: symbol,
                                 companyName: info.companyName || info.symbol || symbol,
-                                lastPrice: priceInfo.lastPrice || 0,
+                                sector: sector,
+                                lastPrice: lastPrice,
                                 change: priceInfo.change || 0,
                                 pChange: priceInfo.pChange || 0,
                                 dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
                                 dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
-                                weekHigh52: priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0,
-                                weekLow52: priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0,
-                                totalTradedVolume: priceInfo.totalTradedVolume || 0,
-                                marketCap: info.marketCap || 0,
+                                weekHigh52: weekHigh52,
+                                weekLow52: weekLow52,
+                                totalTradedVolume: totalTradedVolume,
+                                marketCap: marketCap,
+                                currentPE: currentPE,
+                                sectorPE: sectorPE,
+                                peAtHigh: peAtHigh,
+                                peAtLow: peAtLow,
                                 lastUpdated: new Date().toLocaleString() + ' (🚀 Live via Vercel)',
                                 isLive: true
                             };
@@ -1122,19 +1120,49 @@
                                 if (data && (data.info || data.priceInfo)) {
                                     const info = data.info || {};
                                     const priceInfo = data.priceInfo || {};
+                                    const securityInfo = data.securityInfo || {};
+                                    const preOpenMarket = data.preOpenMarket || {};
+                                    const metadata = data.metadata || {};
+                                    const industryInfo = data.industryInfo || {};
+                                    
+                                    // Calculate market cap: lastPrice * issuedSize
+                                    const lastPrice = priceInfo.lastPrice || 0;
+                                    const issuedSize = securityInfo.issuedSize || 0;
+                                    const marketCap = lastPrice * issuedSize;
+                                    
+                                    // Use pre-market volume if available, otherwise 0
+                                    const totalTradedVolume = preOpenMarket.totalTradedVolume || 0;
+                                    
+                                    // PE Ratio calculations
+                                    const currentPE = metadata.pdSymbolPe || 0;
+                                    const sectorPE = metadata.pdSectorPe || 0;
+                                    const weekHigh52 = priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0;
+                                    const weekLow52 = priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0;
+                                    
+                                    // Calculate PE at 52-week high and low
+                                    const peAtHigh = currentPE > 0 && weekHigh52 > 0 ? (currentPE * weekHigh52 / lastPrice) : 0;
+                                    const peAtLow = currentPE > 0 && weekLow52 > 0 ? (currentPE * weekLow52 / lastPrice) : 0;
+                                    
+                                    // Extract sector information
+                                    const sector = industryInfo.sector || industryInfo.basicIndustry || metadata.industry || 'Unknown';
                                     
                                     return {
                                         symbol: symbol,
                                         companyName: info.companyName || info.symbol || symbol,
-                                        lastPrice: priceInfo.lastPrice || 0,
+                                        sector: sector,
+                                        lastPrice: lastPrice,
                                         change: priceInfo.change || 0,
                                         pChange: priceInfo.pChange || 0,
                                         dayHigh: priceInfo.intraDayHighLow?.max || priceInfo.dayHigh || 0,
                                         dayLow: priceInfo.intraDayHighLow?.min || priceInfo.dayLow || 0,
-                                        weekHigh52: priceInfo.weekHighLow?.max || priceInfo.weekHigh52 || 0,
-                                        weekLow52: priceInfo.weekHighLow?.min || priceInfo.weekLow52 || 0,
-                                        totalTradedVolume: priceInfo.totalTradedVolume || 0,
-                                        marketCap: info.marketCap || 0,
+                                        weekHigh52: weekHigh52,
+                                        weekLow52: weekLow52,
+                                        totalTradedVolume: totalTradedVolume,
+                                        marketCap: marketCap,
+                                        currentPE: currentPE,
+                                        sectorPE: sectorPE,
+                                        peAtHigh: peAtHigh,
+                                        peAtLow: peAtLow,
                                         lastUpdated: new Date().toLocaleString() + ` (🌐 Live via ${proxy.name})`,
                                         isLive: true
                                     };
@@ -1262,7 +1290,78 @@
                 
                 const toHigh = high52 > 0 ? (((high52 - last) / last) * 100).toFixed(2) : 0;
                 const toLow = low52 > 0 ? (((last - low52) / last) * 100).toFixed(2) : 0;
+                // Price Risk/Reward: Upside potential vs downside risk
                 const riskReward = parseFloat(toLow) > 0 ? (parseFloat(toHigh) / parseFloat(toLow)).toFixed(2) : '∞';
+                
+                // PE calculations
+                const currentPE = company.currentPE || 0;
+                const sectorPE = company.sectorPE || 0;
+                const peAtHigh = company.peAtHigh || 0;
+                const peAtLow = company.peAtLow || 0;
+                
+                // PE Risk/Reward: How much PE can drop (reward) vs how much PE can rise (risk)
+                const peRiskReward = (peAtHigh > currentPE && currentPE > peAtLow) ? 
+                    ((currentPE - peAtLow) / (peAtHigh - currentPE)).toFixed(2) : 
+                    (currentPE <= peAtLow ? '∞' : '0');
+                
+                // Helper function to get category label for risk/reward ratios
+                function getRiskRewardCategory(ratio) {
+                    const numRatio = parseFloat(ratio);
+                    if (ratio === '∞' || numRatio >= 2.0) {
+                        return { label: 'Excellent', color: '#28a745' };
+                    } else if (numRatio >= 1.0) {
+                        return { label: 'Good', color: '#d2691e' };
+                    } else {
+                        return { label: 'Poor', color: '#dc3545' };
+                    }
+                }
+                
+                // Overall Score: Composite of both price and PE risk/reward
+                let overallScore = 0;
+                let overallCategory = 'Poor';
+                let overallColor = '#dc3545';
+                
+                const priceRR = parseFloat(riskReward) || 0;
+                const peRR = parseFloat(peRiskReward) || 0;
+                
+                if (priceRR > 0 && peRR > 0 && priceRR !== Infinity && peRR !== Infinity) {
+                    // Geometric mean gives balanced weight to both ratios
+                    overallScore = Math.sqrt(priceRR * peRR);
+                    
+                    if (overallScore >= 2.0) {
+                        overallCategory = 'Excellent';
+                        overallColor = '#28a745';
+                    } else if (overallScore >= 1.5) {
+                        overallCategory = 'Good';
+                        overallColor = '#d2691e';
+                    } else if (overallScore >= 1.0) {
+                        overallCategory = 'Average';
+                        overallColor = '#007bff';
+                    } else {
+                        overallCategory = 'Poor';
+                        overallColor = '#dc3545';
+                    }
+                } else if (priceRR === Infinity || peRR === Infinity) {
+                    // Handle infinity cases
+                    const finiteRatio = priceRR === Infinity ? peRR : priceRR;
+                    if (finiteRatio >= 2.0) {
+                        overallCategory = 'Very Good';
+                        overallColor = '#20c997';
+                        overallScore = '∞';
+                    } else if (finiteRatio >= 1.0) {
+                        overallCategory = 'Good';
+                        overallColor = '#d2691e';
+                        overallScore = '∞';
+                                         } else {
+                         overallCategory = 'Average';
+                         overallColor = '#007bff';
+                         overallScore = '∞';
+                     }
+                } else {
+                    overallCategory = 'Poor';
+                    overallColor = '#dc3545';
+                    overallScore = '0';
+                }
                 
                 let rowClass = '';
                 let dataType = '';
@@ -1279,18 +1378,33 @@
                     dataType = ' 🔴';
                 }
                 
-                return `<tr class="${rowClass}">
-                    <td><strong>${company.companyName}${dataType}</strong></td>
-                    <td>${company.symbol}</td>
-                    <td>₹${last.toLocaleString()}</td>
-                    <td style="color: ${change >= 0 ? 'green' : 'red'}; font-weight: bold;">${change.toFixed(2)}%</td>
-                    <td>₹${high52.toLocaleString()}</td>
-                    <td>₹${low52.toLocaleString()}</td>
-                    <td style='color: blue; font-weight: bold;'>${toHigh}%</td>
-                    <td style='color: orange; font-weight: bold;'>${toLow}%</td>
-                    <td style='font-weight: bold;'>${riskReward}</td>
-                    <td>${company.totalTradedVolume.toLocaleString()}</td>
-                    <td>₹${(company.marketCap / 10000000).toFixed(2)} Cr</td>
+                // Enhanced PE calculations for value investing
+                const pePremiumToSector = sectorPE > 0 ? (((currentPE - sectorPE) / sectorPE) * 100).toFixed(1) : 0;
+                const peDiscountFromHigh = peAtHigh > 0 ? (((currentPE - peAtHigh) / peAtHigh) * 100).toFixed(1) : 0;
+                const pePremiumFromLow = peAtLow > 0 ? (((currentPE - peAtLow) / peAtLow) * 100).toFixed(1) : 0;
+                
+                // Get category labels for risk/reward ratios
+                const priceRRCategory = getRiskRewardCategory(riskReward);
+                const peRRCategory = getRiskRewardCategory(peRiskReward);
+                
+                // Store the numerical overall score for sorting
+                const overallScoreNumeric = typeof overallScore === 'number' ? overallScore : 
+                    (overallScore === '∞' ? 999 : 0); // Assign high value to infinity for sorting
+                
+                return `<tr class="${rowClass}" data-overall-score="${overallScoreNumeric}">
+                    <td>${company.companyName}${dataType}<br><small style="color: #666;">${company.symbol}</small></td>
+                    <td><small style="color: #666;">${company.sector || 'Unknown'}</small></td>
+                    <td><strong>₹${last.toLocaleString()}</strong><br><small style="color: ${change >= 0 ? 'green' : 'red'};">(${change >= 0 ? '+' : ''}${change.toFixed(2)}%)</small></td>
+                    <td>₹${high52.toLocaleString()}<br><small style="color: #666;">(${((last - high52) / high52 * 100).toFixed(2)}%)</small></td>
+                    <td>₹${low52.toLocaleString()}<br><small style="color: #666;">(${((last - low52) / low52 * 100).toFixed(2)}%)</small></td>
+                    <td style='color: blue;'>${toHigh}%</td>
+                    <td style='color: #d2691e;'>${toLow}%</td>
+                    <td style='font-weight: bold; color: ${priceRRCategory.color};'>${riskReward}<br><small style="color: ${priceRRCategory.color}; font-weight: bold;">${priceRRCategory.label}</small></td>
+                    <td style='font-weight: bold; color: ${peRRCategory.color};'>${peRiskReward}<br><small style="color: ${peRRCategory.color}; font-weight: bold;">${peRRCategory.label}</small></td>
+                    <td style='background-color: ${overallColor}20; color: ${overallColor}; font-weight: bold; text-align: center;' data-order="${overallScoreNumeric}">${typeof overallScore === 'number' ? overallScore.toFixed(2) : overallScore}<br><small style="color: ${overallColor}; font-weight: bold;">${overallCategory}</small></td>
+                    <td style='color: ${currentPE > sectorPE ? 'red' : 'green'};'>${currentPE.toFixed(2)}<br><small style="color: #666; font-weight: normal;">(${pePremiumToSector > 0 ? '+' : ''}${pePremiumToSector}% vs ${sectorPE.toFixed(2)} sector)</small></td>
+                    <td style='color: red;'>${peAtHigh.toFixed(2)}<br><small style="color: #666; font-weight: normal;">(${peDiscountFromHigh > 0 ? '+' : ''}${peDiscountFromHigh}% vs high PE)</small></td>
+                    <td style='color: green;'>${peAtLow.toFixed(2)}<br><small style="color: #666; font-weight: normal;">(${pePremiumFromLow > 0 ? '+' : ''}${pePremiumFromLow}% vs low PE)</small></td>
                     <td><small>${company.lastUpdated}</small></td>
                 </tr>`;
             }).join('');
@@ -1299,7 +1413,7 @@
                 stateSave: true,
                 pageLength: 25,
                 responsive: true,
-                order: [[10, 'desc']] // Sort by market cap
+                order: [[9, 'desc']] // Sort by Overall Score (descending for best opportunities first)
             });
             
             console.log("Companies table rendered successfully with", companiesData.length, "rows");
@@ -1329,9 +1443,15 @@
             companiesData = companiesConfig.map(symbol => {
                 const fallback = fallbackCompanyData[symbol];
                 if (fallback) {
+                    // Calculate PE at 52-week high and low
+                    const currentPE = fallback.currentPE || 0;
+                    const peAtHigh = currentPE > 0 && fallback.weekHigh52 > 0 ? (currentPE * fallback.weekHigh52 / fallback.lastPrice) : 0;
+                    const peAtLow = currentPE > 0 && fallback.weekLow52 > 0 ? (currentPE * fallback.weekLow52 / fallback.lastPrice) : 0;
+                    
                     return {
                         symbol: symbol,
                         companyName: fallback.companyName,
+                        sector: fallback.sector || 'Unknown',
                         lastPrice: fallback.lastPrice,
                         change: 0,
                         pChange: fallback.pChange,
@@ -1341,6 +1461,10 @@
                         weekLow52: fallback.weekLow52,
                         totalTradedVolume: fallback.totalTradedVolume,
                         marketCap: fallback.marketCap,
+                        currentPE: currentPE,
+                        sectorPE: fallback.sectorPE || 0,
+                        peAtHigh: peAtHigh,
+                        peAtLow: peAtLow,
                         lastUpdated: new Date().toLocaleString() + ' (Demo Data)',
                         fallback: true
                     };
@@ -1348,12 +1472,17 @@
                 return {
                     symbol: symbol,
                     companyName: symbol,
+                    sector: 'Unknown',
                     lastPrice: 0,
                     pChange: 0,
                     weekHigh52: 0,
                     weekLow52: 0,
                     totalTradedVolume: 0,
                     marketCap: 0,
+                    currentPE: 0,
+                    sectorPE: 0,
+                    peAtHigh: 0,
+                    peAtLow: 0,
                     lastUpdated: new Date().toLocaleString(),
                     error: true
                 };
@@ -1427,7 +1556,7 @@
                     <td>${index.yearHigh} <br><small style="color: #666;">(${((last - high) / high * 100).toFixed(2)}%)</small></td>
                     <td>${index.yearLow} <br><small style="color: #666;">(${((last - low) / low * 100).toFixed(2)}%)</small></td>
                     <td style='color: blue; font-weight: bold;'>${toHigh}%</td>
-                    <td style='color: orange; font-weight: bold;'>${toLow}%</td>
+                    <td style='color: #d2691e; font-weight: bold;'>${toLow}%</td>
                     <td style='font-weight: bold;'>${riskReward}</td>
                     <td><small>${index.timeVal}</small></td>
                 </tr>`;
