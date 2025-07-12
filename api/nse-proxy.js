@@ -7,7 +7,7 @@
  * * Key Features:
  * - Handles both GET and POST requests for single or batch symbols.
  * - Supports multiple NSE API endpoints through a simple configuration object.
- * - Implements a realistic multi-step session "warm-up" to acquire valid cookies.
+ * - Implements a realistic multi-step session "warm-up" with retry logic for reliability.
  * - Robust cookie parsing and management.
  * - throttles requests in concurrent chunks to avoid rate-limiting.
  * - Clear and structured JSON response with metadata, data, and errors.
@@ -45,7 +45,7 @@ const ENDPOINT_CONFIG = {
  * @param {number} timeoutMs The timeout in milliseconds.
  * @returns {Promise<Response>} A promise that resolves with the fetch Response.
  */
-function fetchWithTimeout(url, options, timeoutMs = 15000) {
+function fetchWithTimeout(url, options, timeoutMs = 25000) { // Increased default timeout
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -54,62 +54,71 @@ function fetchWithTimeout(url, options, timeoutMs = 15000) {
 }
 
 /**
- * Establishes a session with NSE by mimicking browser navigation to get necessary cookies.
+ * Establishes a session with NSE, with retry logic for resilience.
  * @returns {Promise<string>} A promise that resolves with the semicolon-separated cookie string.
  */
 async function getSessionCookies() {
   console.log('Establishing NSE session...');
-  const headers = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'User-Agent': USER_AGENT,
-    'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0'
-  };
+  const MAX_ATTEMPTS = 3;
+  let lastError;
 
-  try {
-    // Step 1: Visit the main page to get initial cookies.
-    console.log('Step 1: Fetching main page...');
-    const mainPageRes = await fetchWithTimeout(NSE_BASE_URL, { headers });
-    if (!mainPageRes.ok) throw new Error(`Main page fetch failed: ${mainPageRes.status}`);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      console.log(`Session attempt ${attempt}/${MAX_ATTEMPTS}...`);
+      const headers = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'User-Agent': USER_AGENT,
+        'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0'
+      };
 
-    const mainCookies = mainPageRes.headers.get('set-cookie') || '';
-    console.log('Step 1: Main page cookies received.');
+      // Step 1: Visit the main page to get initial cookies.
+      const mainPageRes = await fetchWithTimeout(NSE_BASE_URL, { headers });
+      if (!mainPageRes.ok) throw new Error(`Main page fetch failed: ${mainPageRes.status}`);
 
-    // Step 2: Visit a data-heavy page, sending back the cookies, to get additional cookies.
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500)); // Human-like pause
-    console.log('Step 2: Fetching market data page...');
-    const marketDataRes = await fetchWithTimeout(`${NSE_BASE_URL}/market-data/live-equity-market`, {
-      headers: { ...headers, 'Referer': NSE_BASE_URL, 'Cookie': mainCookies }
-    });
-    if (!marketDataRes.ok) throw new Error(`Market data page fetch failed: ${marketDataRes.status}`);
+      const mainCookies = mainPageRes.headers.get('set-cookie') || '';
+      console.log('Step 1: Main page cookies received.');
 
-    const allCookiesRaw = [mainCookies, marketDataRes.headers.get('set-cookie') || ''].join(', ');
-    
-    // Clean and de-duplicate cookies
-    const cookieMap = new Map();
-    allCookiesRaw.split(',').forEach(cookie => {
-      const parts = cookie.split(';')[0].trim();
-      if (parts) {
-        const [name, ...value] = parts.split('=');
-        if (name && value.length > 0) {
-          cookieMap.set(name, value.join('='));
+      // Step 2: Visit a data-heavy page to get additional cookies.
+      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+      const marketDataRes = await fetchWithTimeout(`${NSE_BASE_URL}/market-data/live-equity-market`, {
+        headers: { ...headers, 'Referer': NSE_BASE_URL, 'Cookie': mainCookies }
+      });
+      if (!marketDataRes.ok) throw new Error(`Market data page fetch failed: ${marketDataRes.status}`);
+
+      // Clean and de-duplicate all collected cookies
+      const allCookiesRaw = [mainCookies, marketDataRes.headers.get('set-cookie') || ''].join(', ');
+      const cookieMap = new Map();
+      allCookiesRaw.split(',').forEach(cookie => {
+        const parts = cookie.split(';')[0].trim();
+        if (parts) {
+          const [name, ...value] = parts.split('=');
+          if (name && value.length > 0) {
+            cookieMap.set(name, value.join('='));
+          }
         }
+      });
+
+      const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+      console.log(`Session established successfully. Final cookie length: ${finalCookies.length}`);
+      return finalCookies; // Success!
+
+    } catch (error) {
+      lastError = error;
+      console.error(`Session attempt ${attempt} failed: ${error.message}`);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
       }
-    });
-
-    const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-    console.log(`Session established successfully. Final cookie length: ${finalCookies.length}`);
-    return finalCookies;
-
-  } catch (error) {
-    console.error('Failed to establish NSE session:', error.message);
-    return null;
+    }
   }
+  
+  // If all attempts fail, throw the last recorded error
+  throw new Error(`Failed to establish NSE session after ${MAX_ATTEMPTS} attempts. Last error: ${lastError.message}`);
 }
 
 /**
@@ -131,11 +140,8 @@ async function fetchNseData(symbol, endpoint, sessionCookies) {
   try {
     const headers = {
       'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
       'User-Agent': USER_AGENT,
-      'Referer': `${NSE_BASE_URL}/get-quotes/equity`, // A common referer for API calls
-      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${NSE_BASE_URL}/get-quotes/equity`, 
       'Cookie': sessionCookies
     };
 
@@ -148,7 +154,7 @@ async function fetchNseData(symbol, endpoint, sessionCookies) {
         symbol,
         success: false,
         error: `HTTP Error: ${response.status}`,
-        details: errorText.substring(0, 200) // Avoid logging huge HTML error pages
+        details: errorText.substring(0, 200)
       };
     }
 
@@ -203,12 +209,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Establish session for all subsequent API calls
     const sessionCookies = await getSessionCookies();
-    if (!sessionCookies) {
-      return res.status(503).json({ error: 'Service Unavailable: Could not establish session with NSE.' });
-    }
-
+    
     // Process symbols in throttled, concurrent chunks
     const MAX_CONCURRENT = 4;
     const results = [];
@@ -248,10 +250,8 @@ export default async function handler(req, res) {
       }, {}),
     };
 
-    // Set cache header
     res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
 
-    // Determine appropriate status code
     if (failed.length === 0) {
       return res.status(200).json(responsePayload); // All successful
     } else if (successful.length > 0) {
@@ -262,6 +262,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Critical Proxy Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error', message: error.message });
+    return res.status(503).json({ 
+        error: 'Service Unavailable', 
+        message: error.message 
+    });
   }
 }
