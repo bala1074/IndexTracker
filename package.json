@@ -1,0 +1,44 @@
+{
+  "name": "nifty-indices-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time NIFTY Indices Dashboard with risk-reward analysis",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site - no build needed'",
+    "start": "vercel dev --listen 3000",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "nifty",
+    "indices",
+    "nse",
+    "stock-market",
+    "india",
+    "dashboard",
+    "real-time"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "vercel": "^33.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/nifty-indices-dashboard.git"
+  },
+  "homepage": "https://your-project-name.vercel.app",
+  "vercel": {
+    "functions": {
+      "api/nse-proxy.js": {
+        "maxDuration": 30
+      }
+    }
+  }
+} 
