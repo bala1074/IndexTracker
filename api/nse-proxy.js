@@ -1,375 +1,267 @@
-// Vercel serverless function to proxy NSE API calls
-// Enhanced to work with NSE's bot detection
+// /api/nse-proxy.js
+
+/**
+ * Vercel serverless function to proxy NSE (National Stock Exchange) of India API calls.
+ * * This function is enhanced to reliably bypass NSE's bot detection by mimicking a
+ * real browser's navigation flow to establish a valid session with the necessary cookies.
+ * * Key Features:
+ * - Handles both GET and POST requests for single or batch symbols.
+ * - Supports multiple NSE API endpoints through a simple configuration object.
+ * - Implements a realistic multi-step session "warm-up" to acquire valid cookies.
+ * - Robust cookie parsing and management.
+ * - throttles requests in concurrent chunks to avoid rate-limiting.
+ * - Clear and structured JSON response with metadata, data, and errors.
+ * - Proper HTTP status codes for success (200), partial success (207), and failure (502).
+ */
+
+// --- CONFIGURATION ---
+
+const NSE_BASE_URL = 'https://www.nseindia.com';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+// Map friendly endpoint names to actual API paths and required query parameters
+const ENDPOINT_CONFIG = {
+  'quote': {
+    path: '/api/quote-equity',
+    param: 'symbol',
+  },
+  'option-chain': {
+    path: '/api/option-chain-indices',
+    param: 'symbol', // e.g., NIFTY, BANKNIFTY
+  },
+  'chart': {
+    path: '/api/chart-databyindex',
+    param: 'index', // e.g., NIFTY 50
+  },
+  // Add other endpoints here as needed
+};
+
+// --- HELPER FUNCTIONS ---
+
+/**
+ * Fetches a URL with a specified timeout.
+ * @param {string} url The URL to fetch.
+ * @param {object} options The fetch options.
+ * @param {number} timeoutMs The timeout in milliseconds.
+ * @returns {Promise<Response>} A promise that resolves with the fetch Response.
+ */
+function fetchWithTimeout(url, options, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timeout));
+}
+
+/**
+ * Establishes a session with NSE by mimicking browser navigation to get necessary cookies.
+ * @returns {Promise<string>} A promise that resolves with the semicolon-separated cookie string.
+ */
+async function getSessionCookies() {
+  console.log('Establishing NSE session...');
+  const headers = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'User-Agent': USER_AGENT,
+    'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
+  };
+
+  try {
+    // Step 1: Visit the main page to get initial cookies.
+    console.log('Step 1: Fetching main page...');
+    const mainPageRes = await fetchWithTimeout(NSE_BASE_URL, { headers });
+    if (!mainPageRes.ok) throw new Error(`Main page fetch failed: ${mainPageRes.status}`);
+
+    const mainCookies = mainPageRes.headers.get('set-cookie') || '';
+    console.log('Step 1: Main page cookies received.');
+
+    // Step 2: Visit a data-heavy page, sending back the cookies, to get additional cookies.
+    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500)); // Human-like pause
+    console.log('Step 2: Fetching market data page...');
+    const marketDataRes = await fetchWithTimeout(`${NSE_BASE_URL}/market-data/live-equity-market`, {
+      headers: { ...headers, 'Referer': NSE_BASE_URL, 'Cookie': mainCookies }
+    });
+    if (!marketDataRes.ok) throw new Error(`Market data page fetch failed: ${marketDataRes.status}`);
+
+    const allCookiesRaw = [mainCookies, marketDataRes.headers.get('set-cookie') || ''].join(', ');
+    
+    // Clean and de-duplicate cookies
+    const cookieMap = new Map();
+    allCookiesRaw.split(',').forEach(cookie => {
+      const parts = cookie.split(';')[0].trim();
+      if (parts) {
+        const [name, ...value] = parts.split('=');
+        if (name && value.length > 0) {
+          cookieMap.set(name, value.join('='));
+        }
+      }
+    });
+
+    const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+    console.log(`Session established successfully. Final cookie length: ${finalCookies.length}`);
+    return finalCookies;
+
+  } catch (error) {
+    console.error('Failed to establish NSE session:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Fetches data for a single symbol from a specified NSE endpoint.
+ * @param {string} symbol The stock symbol or index name.
+ * @param {string} endpoint The friendly endpoint name (e.g., 'quote').
+ * @param {string} sessionCookies The session cookie string.
+ * @returns {Promise<object>} A result object indicating success or failure.
+ */
+async function fetchNseData(symbol, endpoint, sessionCookies) {
+  const config = ENDPOINT_CONFIG[endpoint];
+  if (!config) {
+    return { symbol, success: false, error: `Invalid endpoint: ${endpoint}` };
+  }
+
+  const targetUrl = `${NSE_BASE_URL}${config.path}?${config.param}=${encodeURIComponent(symbol)}`;
+  console.log(`Fetching data for [${symbol}] from [${endpoint}] endpoint...`);
+
+  try {
+    const headers = {
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'User-Agent': USER_AGENT,
+      'Referer': `${NSE_BASE_URL}/get-quotes/equity`, // A common referer for API calls
+      'X-Requested-With': 'XMLHttpRequest',
+      'Cookie': sessionCookies
+    };
+
+    const response = await fetchWithTimeout(targetUrl, { headers });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[${symbol}] Failed with status ${response.status}.`);
+      return {
+        symbol,
+        success: false,
+        error: `HTTP Error: ${response.status}`,
+        details: errorText.substring(0, 200) // Avoid logging huge HTML error pages
+      };
+    }
+
+    const data = await response.json();
+    console.log(`[${symbol}] Success.`);
+    return { symbol, success: true, data };
+
+  } catch (error) {
+    console.error(`[${symbol}] Request failed: ${error.message}`);
+    return { symbol, success: false, error: error.message };
+  }
+}
+
+// --- MAIN HANDLER ---
 
 export default async function handler(req, res) {
-  // Set CORS headers
+  // Set CORS and handle preflight OPTIONS request
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Authorization, Origin');
-  
-  // Handle preflight requests
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(204).end();
   }
-  
-  // Allow both GET and POST requests
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+
+  const startTime = Date.now();
+  let symbols = [];
+  let endpoint = 'quote';
+
+  // Extract parameters from GET or POST request
+  if (req.method === 'GET') {
+    const { symbol, symbols: symbolsParam, endpoint: endpointParam } = req.query;
+    if (symbolsParam) symbols = symbolsParam.split(',').map(s => s.trim()).filter(Boolean);
+    else if (symbol) symbols = [symbol.trim()];
+    if (endpointParam) endpoint = endpointParam;
+  } else if (req.method === 'POST') {
+    symbols = req.body.symbols || [];
+    endpoint = req.body.endpoint || 'quote';
+  } else {
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
-  
-  try {
-    let symbols = [];
-    let endpoint = 'quote';
-    
-    // Handle both GET and POST requests
-    if (req.method === 'GET') {
-      const { symbol, symbols: symbolsParam, endpoint: endpointParam = 'quote' } = req.query;
-      endpoint = endpointParam;
-      
-      if (symbolsParam) {
-        symbols = symbolsParam.split(',').map(s => s.trim()).filter(s => s);
-      } else if (symbol) {
-        symbols = [symbol];
-      }
-    } else if (req.method === 'POST') {
-      const body = req.body;
-      symbols = body.symbols || [];
-      endpoint = body.endpoint || 'quote';
-    }
-    
-    if (!symbols || symbols.length === 0) {
-      return res.status(400).json({ 
-        error: 'Symbols parameter is required',
+
+  if (!symbols.length || !ENDPOINT_CONFIG[endpoint]) {
+    return res.status(400).json({ 
+        error: 'Missing or invalid parameters.',
         usage: {
-          single: '/api/nse-proxy?symbol=RELIANCE&endpoint=quote',
-          batch_get: '/api/nse-proxy?symbols=RELIANCE,TCS,HDFCBANK&endpoint=quote',
-          batch_post: 'POST /api/nse-proxy with body: {"symbols": ["RELIANCE", "TCS"], "endpoint": "quote"}'
+            'GET (single)': `/api/nse-proxy?symbol=RELIANCE&endpoint=quote`,
+            'GET (batch)': `/api/nse-proxy?symbols=RELIANCE,TCS&endpoint=quote`,
+            'POST (batch)': `{"symbols": ["RELIANCE", "TCS"], "endpoint": "quote"}`,
+            'Available Endpoints': Object.keys(ENDPOINT_CONFIG)
         }
-      });
+    });
+  }
+
+  try {
+    // Establish session for all subsequent API calls
+    const sessionCookies = await getSessionCookies();
+    if (!sessionCookies) {
+      return res.status(503).json({ error: 'Service Unavailable: Could not establish session with NSE.' });
     }
-    
-    console.log(`Processing ${symbols.length} symbols: ${symbols.join(', ')}`);
-    
-    // Helper function to create requests with timeout
-    function fetchWithTimeout(url, options, timeoutMs = 15000) {
-      return Promise.race([
-        fetch(url, options),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
-        )
-      ]);
-    }
-    
-    // Enhanced session establishment - mimic exact NSE website behavior
-    console.log('Establishing NSE session with realistic browser flow...');
-    let sessionCookies = '';
-    
-    // Step 1: Get main page like a real browser
-    try {
-      console.log('Step 1: Loading NSE main page...');
-      const mainPageResponse = await fetchWithTimeout('https://www.nseindia.com', {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1',
-          'Cache-Control': 'max-age=0'
-        }
-      }, 12000);
-      
-      console.log(`Main page response: ${mainPageResponse.status}`);
-      
-      if (mainPageResponse.status === 200) {
-        const mainCookies = mainPageResponse.headers.get('set-cookie');
-        if (mainCookies) {
-          sessionCookies = mainCookies.split(',').map(c => c.trim().split(';')[0]).join('; ');
-          console.log(`Main page cookies received: ${sessionCookies.substring(0, 100)}...`);
-        }
-        
-        // Step 2: Simulate human behavior - wait and load market data page
-        console.log('Step 2: Waiting 2 seconds (human behavior simulation)...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        console.log('Step 3: Loading market data page...');
-        const marketDataResponse = await fetchWithTimeout('https://www.nseindia.com/market-data/live-equity-market', {
-          method: 'GET',
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'same-origin',
-            'Sec-Fetch-User': '?1',
-            'Referer': 'https://www.nseindia.com',
-            'Cookie': sessionCookies,
-            'Upgrade-Insecure-Requests': '1'
-          }
-        }, 10000);
-        
-        console.log(`Market data page response: ${marketDataResponse.status}`);
-        
-        if (marketDataResponse.status === 200) {
-          const additionalCookies = marketDataResponse.headers.get('set-cookie');
-          if (additionalCookies) {
-            const newCookies = additionalCookies.split(',').map(c => c.trim().split(';')[0]).join('; ');
-            sessionCookies = sessionCookies + '; ' + newCookies;
-            console.log(`Additional cookies received: ${newCookies.substring(0, 100)}...`);
-          }
-        }
-        
-        // Step 3: Load get quotes page (where the API is typically called from)
-        console.log('Step 4: Loading get quotes page...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const quotesPageResponse = await fetchWithTimeout('https://www.nseindia.com/get-quotes/equity', {
-          method: 'GET',
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'same-origin',
-            'Sec-Fetch-User': '?1',
-            'Referer': 'https://www.nseindia.com/market-data/live-equity-market',
-            'Cookie': sessionCookies,
-            'Upgrade-Insecure-Requests': '1'
-          }
-        }, 10000);
-        
-        console.log(`Get quotes page response: ${quotesPageResponse.status}`);
-        
-        if (quotesPageResponse.status === 200) {
-          const finalCookies = quotesPageResponse.headers.get('set-cookie');
-          if (finalCookies) {
-            const newCookies = finalCookies.split(',').map(c => c.trim().split(';')[0]).join('; ');
-            sessionCookies = sessionCookies + '; ' + newCookies;
-          }
-        }
-        
-      }
-    } catch (error) {
-      console.error('Session establishment failed:', error.message);
-    }
-    
-    // Clean up cookies - remove duplicates and empty values
-    if (sessionCookies) {
-      const cookieMap = new Map();
-      sessionCookies.split(';').forEach(cookie => {
-        const [name, value] = cookie.trim().split('=');
-        if (name && value) {
-          cookieMap.set(name.trim(), value.trim());
-        }
-      });
-      sessionCookies = Array.from(cookieMap.entries()).map(([name, value]) => `${name}=${value}`).join('; ');
-      console.log(`Final session cookies: ${sessionCookies.length} characters`);
-    }
-    
-    // Function to fetch data for a single symbol
-    async function fetchSingleSymbol(symbol) {
-      try {
-        const targetUrl = `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`;
-        console.log(`Fetching ${symbol} from: ${targetUrl}`);
-        
-        // Wait a bit before making API call (simulate human behavior)
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const headers = {
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
-          'Referer': 'https://www.nseindia.com/get-quotes/equity',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        };
-        
-        // Add session cookies if available
-        if (sessionCookies) {
-          headers['Cookie'] = sessionCookies;
-        }
-        
-        console.log(`${symbol}: Making API call with session cookies...`);
-        
-        const response = await fetchWithTimeout(targetUrl, {
-          method: 'GET',
-          headers: headers
-        }, 15000);
-        
-        console.log(`${symbol}: Response ${response.status} ${response.statusText}`);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          const contentType = response.headers.get('content-type') || '';
-          
-          console.error(`${symbol}: Error - ${response.status} ${response.statusText}`);
-          console.error(`${symbol}: Content-Type: ${contentType}`);
-          
-          return {
-            symbol: symbol,
-            success: false,
-            error: `HTTP ${response.status}: ${response.statusText}`,
-            details: contentType.includes('text/html') ? 'NSE returned HTML error page' : errorText.substring(0, 200),
-            timestamp: new Date().toISOString()
-          };
-        }
-        
-        const data = await response.json();
-        console.log(`${symbol}: Success - Data received`);
-        
-        return {
-          symbol: symbol,
-          success: true,
-          data: data,
-          timestamp: new Date().toISOString()
-        };
-        
-      } catch (error) {
-        console.error(`${symbol}: Error - ${error.message}`);
-        return {
-          symbol: symbol,
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        };
-      }
-    }
-    
-    // Process symbols with proper delays and chunking
-    console.log('Starting API requests with realistic timing...');
-    const startTime = Date.now();
-    const MAX_CONCURRENT = 3; // Very conservative to avoid overwhelming NSE
-    const MAX_PROCESSING_TIME = 50000; // 50 seconds max
-    
+
+    // Process symbols in throttled, concurrent chunks
+    const MAX_CONCURRENT = 4;
     const results = [];
-    
-    // Process symbols in small chunks with delays
     for (let i = 0; i < symbols.length; i += MAX_CONCURRENT) {
       const chunk = symbols.slice(i, i + MAX_CONCURRENT);
+      console.log(`Processing chunk: ${chunk.join(', ')}`);
       
-      // Check timeout
-      if (Date.now() - startTime > MAX_PROCESSING_TIME) {
-        console.log(`Timeout approaching, stopping at ${i}/${symbols.length}`);
-        for (let j = i; j < symbols.length; j++) {
-          results.push({
-            symbol: symbols[j],
-            success: false,
-            error: 'Processing timeout',
-            timestamp: new Date().toISOString()
-          });
-        }
-        break;
-      }
-      
-      console.log(`Processing chunk ${Math.floor(i/MAX_CONCURRENT) + 1}: ${chunk.join(', ')}`);
-      
-      try {
-        const chunkResults = await Promise.all(
-          chunk.map(symbol => fetchSingleSymbol(symbol))
-        );
-        results.push(...chunkResults);
-        
-        // Longer delay between chunks to be respectful
-        if (i + MAX_CONCURRENT < symbols.length) {
-          console.log('Waiting 3 seconds before next chunk...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-        
-      } catch (error) {
-        console.error(`Chunk failed: ${error.message}`);
-        chunk.forEach(symbol => {
-          results.push({
-            symbol: symbol,
-            success: false,
-            error: `Chunk failed: ${error.message}`,
-            timestamp: new Date().toISOString()
-          });
-        });
+      const chunkPromises = chunk.map(symbol => fetchNseData(symbol, endpoint, sessionCookies));
+      const chunkResults = await Promise.all(chunkPromises);
+      results.push(...chunkResults);
+
+      if (i + MAX_CONCURRENT < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Delay between chunks
       }
     }
     
-    const endTime = Date.now();
-    const duration = endTime - startTime;
-    
-    console.log(`Completed ${results.length}/${symbols.length} requests in ${duration}ms`);
-    
-    // Process results
+    // Compile the final response
     const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
-    
-    console.log(`Success: ${successful.length}, Failed: ${failed.length}`);
-    
-    // Build response
-    const response = {
+
+    const responsePayload = {
       meta: {
-        totalSymbols: symbols.length,
+        source: 'NSE API via Vercel Proxy',
+        symbolsRequested: symbols.length,
         successful: successful.length,
         failed: failed.length,
-        duration: `${duration}ms`,
+        duration: `${Date.now() - startTime}ms`,
         timestamp: new Date().toISOString(),
-        source: 'NSE API via Enhanced Proxy',
-        sessionEstablished: sessionCookies ? true : false
       },
-      data: {},
-      errors: {}
+      data: successful.reduce((acc, r) => {
+        acc[r.symbol] = r.data;
+        return acc;
+      }, {}),
+      errors: failed.reduce((acc, r) => {
+        acc[r.symbol] = { error: r.error, details: r.details };
+        return acc;
+      }, {}),
     };
-    
-    // Add successful data
-    successful.forEach(result => {
-      response.data[result.symbol] = result.data;
-    });
-    
-    // Add error information
-    failed.forEach(result => {
-      response.errors[result.symbol] = {
-        error: result.error,
-        details: result.details,
-        timestamp: result.timestamp
-      };
-    });
-    
-    // Cache briefly
-    res.setHeader('Cache-Control', 'public, max-age=60');
-    
-    // Return response
-    if (successful.length > 0) {
-      return res.status(200).json(response);
+
+    // Set cache header
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+
+    // Determine appropriate status code
+    if (failed.length === 0) {
+      return res.status(200).json(responsePayload); // All successful
+    } else if (successful.length > 0) {
+      return res.status(207).json(responsePayload); // Partial success
     } else {
-      return res.status(207).json(response);
+      return res.status(502).json(responsePayload); // All failed
     }
-    
+
   } catch (error) {
-    console.error('Proxy Error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
+    console.error('Critical Proxy Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error', message: error.message });
   }
-} 
+}
