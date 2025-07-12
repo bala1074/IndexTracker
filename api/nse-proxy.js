@@ -53,32 +53,41 @@ export default async function handler(req, res) {
     
     console.log(`Processing ${symbols.length} symbols: ${symbols.join(', ')}`);
     
-    // Function to fetch data for a single symbol
+    // Step 1: Establish session cookies once for all requests
+    console.log('Establishing NSE session...');
+    let sessionCookies = '';
+    
+    try {
+      const sessionResponse = await fetch('https://www.nseindia.com/', {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      sessionCookies = sessionResponse.headers.get('set-cookie') || '';
+      console.log(`Session established: ${sessionCookies ? 'Cookies received' : 'No cookies'}`);
+      
+    } catch (error) {
+      console.error('Failed to establish session:', error.message);
+    }
+    
+    // Function to fetch data for a single symbol using shared session
     async function fetchSingleSymbol(symbol) {
       try {
         const targetUrl = `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`;
         console.log(`Fetching ${symbol} from: ${targetUrl}`);
         
-        // Step 1: Try to establish session (do this once for all requests)
-        const sessionResponse = await fetch('https://www.nseindia.com/', {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'no-cache'
-          }
-        });
-        
-        const cookies = sessionResponse.headers.get('set-cookie') || '';
-        
-        // Step 2: Make the actual API request
+        // Step 2: Make the actual API request with shared session cookies
         const response = await fetch(targetUrl, {
           method: 'GET',
           headers: {
@@ -94,7 +103,7 @@ export default async function handler(req, res) {
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
-            'Cookie': cookies
+            'Cookie': sessionCookies
           }
         });
         
