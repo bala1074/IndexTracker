@@ -67,9 +67,11 @@ export default async function handler(req, res) {
     console.log('Establishing NSE session...');
     let sessionCookies = '';
     
-    try {
-      const sessionResponse = await fetchWithTimeout('https://www.nseindia.com/', {
-        method: 'GET',
+    // Try multiple approaches to establish session
+    const sessionMethods = [
+      {
+        name: 'Main NSE Page',
+        url: 'https://www.nseindia.com/',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -82,14 +84,53 @@ export default async function handler(req, res) {
           'Sec-Fetch-Site': 'none',
           'Cache-Control': 'no-cache'
         }
-      }, 8000); // 8 second timeout for session establishment
-      
-      sessionCookies = sessionResponse.headers.get('set-cookie') || '';
-      console.log(`Session established: ${sessionCookies ? 'Cookies received' : 'No cookies'}`);
-      
-    } catch (error) {
-      console.error('Failed to establish session:', error.message);
-      // Continue without session cookies - some requests might still work
+      },
+      {
+        name: 'Market Data Page',
+        url: 'https://www.nseindia.com/market-data',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'no-cache'
+        }
+      }
+    ];
+    
+    for (const method of sessionMethods) {
+      try {
+        console.log(`Trying ${method.name}...`);
+        const sessionResponse = await fetchWithTimeout(method.url, {
+          method: 'GET',
+          headers: method.headers
+        }, 10000);
+        
+        console.log(`${method.name} response status: ${sessionResponse.status}`);
+        
+        if (sessionResponse.ok) {
+          const rawCookies = sessionResponse.headers.get('set-cookie');
+          if (rawCookies) {
+            // Parse and format cookies properly
+            const cookies = rawCookies.split(',').map(cookie => cookie.trim().split(';')[0]).join('; ');
+            sessionCookies = cookies;
+            console.log(`Session established via ${method.name}: ${cookies.length} chars`);
+            console.log(`Sample cookies: ${cookies.substring(0, 100)}...`);
+            break;
+          }
+        }
+      } catch (error) {
+        console.error(`${method.name} failed:`, error.message);
+      }
+    }
+    
+    if (!sessionCookies) {
+      console.warn('No session cookies established - API calls may fail');
     }
     
     // Function to fetch data for a single symbol using shared session
@@ -98,40 +139,76 @@ export default async function handler(req, res) {
         const targetUrl = `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`;
         console.log(`Fetching ${symbol} from: ${targetUrl}`);
         
-        // Step 2: Make the actual API request with shared session cookies and timeout
+        // Prepare headers - enhance with more NSE-specific headers
+        const headers = {
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://www.nseindia.com/',
+          'Origin': 'https://www.nseindia.com',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"'
+        };
+        
+        // Add session cookies if available
+        if (sessionCookies) {
+          headers['Cookie'] = sessionCookies;
+        }
+        
+        console.log(`${symbol}: Using cookies: ${sessionCookies ? 'Yes' : 'No'}`);
+        
+        // Make the API request with enhanced headers
         const response = await fetchWithTimeout(targetUrl, {
           method: 'GET',
-          headers: {
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://www.nseindia.com/',
-            'Origin': 'https://www.nseindia.com',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'Cookie': sessionCookies
-          }
+          headers: headers
         }, 12000); // 12 second timeout for individual API calls
         
-        console.log(`${symbol}: Response ${response.status}`);
+        console.log(`${symbol}: Response ${response.status} ${response.statusText}`);
         
         if (!response.ok) {
           const errorText = await response.text();
+          const contentType = response.headers.get('content-type') || '';
+          
+          console.error(`${symbol}: Error response - Content-Type: ${contentType}`);
+          console.error(`${symbol}: Error body: ${errorText.substring(0, 300)}`);
+          
+          // Special handling for 401 errors - provide more context
+          if (response.status === 401) {
+            const isHtmlResponse = contentType.includes('text/html');
+            return {
+              symbol: symbol,
+              success: false,
+              error: `HTTP 401: Unauthorized${isHtmlResponse ? ' (HTML error page)' : ''}`,
+              details: isHtmlResponse ? 'NSE returned HTML error page instead of JSON - session cookies may be invalid' : errorText.substring(0, 200),
+              contentType: contentType,
+              sessionCookiesUsed: sessionCookies ? 'Yes' : 'No',
+              timestamp: new Date().toISOString()
+            };
+          }
+          
           return {
             symbol: symbol,
             success: false,
             error: `HTTP ${response.status}: ${response.statusText}`,
             details: errorText.substring(0, 200),
+            contentType: contentType,
             timestamp: new Date().toISOString()
           };
         }
         
+        const contentType = response.headers.get('content-type') || '';
+        console.log(`${symbol}: Success - Content-Type: ${contentType}`);
+        
         const data = await response.json();
+        console.log(`${symbol}: Data received successfully`);
         
         return {
           symbol: symbol,
