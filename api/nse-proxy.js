@@ -1,11 +1,11 @@
-// Vercel serverless function to proxy NSE API calls
-// This solves CORS issues by making server-side requests with dynamic session management
+// Vercel Serverless Function to Proxy Screener.in Requests
+// This avoids CORS issues by fetching data server-side
 
 export default async function handler(req, res) {
-  // Set CORS headers
+  // Set CORS headers to allow requests from your frontend
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Authorization, Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -15,251 +15,169 @@ export default async function handler(req, res) {
   
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
   
   try {
-    const { symbol, endpoint = 'quote' } = req.query;
+    const { symbol } = req.query;
     
     if (!symbol) {
-      return res.status(400).json({ 
-        error: 'Symbol parameter is required',
-        usage: '/api/nse-proxy?symbol=RELIANCE&endpoint=quote'
-      });
+      res.status(400).json({ error: 'Symbol parameter is required' });
+      return;
     }
     
-    // Define NSE API endpoints
-    const nseEndpoints = {
-      quote: `https://www.nseindia.com/api/quote-equity?symbol=${symbol}`,
-      indices: 'https://www.nseindia.com/api/allIndices',
-      preopen: 'https://www.nseindia.com/api/market-data-pre-open?key=ALL',
-      marketstatus: 'https://www.nseindia.com/api/marketStatus'
-    };
+    console.log(`🔍 Fetching data for ${symbol} from Screener.in`);
     
-    const targetUrl = nseEndpoints[endpoint];
-    
-    if (!targetUrl) {
-      return res.status(400).json({ 
-        error: 'Invalid endpoint',
-        availableEndpoints: Object.keys(nseEndpoints)
-      });
-    }
-    
-    console.log(`🔄 Starting dynamic session for ${symbol}...`);
-    
-    // Step 1: Get fresh session cookies from NSE homepage
-    const sessionData = await getSessionFromNSE();
-    
-    if (!sessionData.success) {
-      console.error('❌ Failed to get session data:', sessionData.error);
-      return res.status(500).json({
-        error: 'Failed to establish NSE session',
-        details: sessionData.error,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    console.log(`✅ Session established, making API call to: ${targetUrl}`);
-    
-    // Step 2: Make API call with fresh session cookies
-    const response = await fetch(targetUrl, {
-      method: 'GET',
+    // Fetch data from Screener.in
+    const screenerUrl = `https://www.screener.in/company/${symbol}/`;
+    const response = await fetch(screenerUrl, {
       headers: {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'pragma': 'no-cache',
-        'priority': 'u=0, i',
-        'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"macOS"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
-        'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1',
-        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'referer': 'https://www.nseindia.com/',
-        'origin': 'https://www.nseindia.com',
-        'cookie': sessionData.cookies
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
       }
     });
-    
-    console.log(`📡 NSE API Response: ${response.status} ${response.statusText}`);
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ NSE API Error:', errorText);
-      
-      // Return structured error response
-      return res.status(response.status).json({
-        error: `NSE API Error: ${response.status} ${response.statusText}`,
-        details: response.status === 401 ? 
-          'NSE API requires session cookies. Session establishment may have failed.' :
-          errorText.substring(0, 200),
-        symbol: symbol,
-        endpoint: endpoint,
-        sessionInfo: {
-          cookiesUsed: sessionData.cookies ? 'Yes' : 'No',
-          sessionAge: sessionData.timestamp
-        },
-        timestamp: new Date().toISOString()
-      });
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
     
-    const data = await response.json();
-    console.log('🎯 NSE API Success for:', symbol);
+    const html = await response.text();
     
-    // Add metadata to response
-    const enrichedData = {
-      ...data,
-      _meta: {
-        symbol: symbol,
-        endpoint: endpoint,
-        timestamp: new Date().toISOString(),
-        source: 'NSE API via Dynamic Session Proxy',
-        sessionInfo: {
-          freshCookies: true,
-          sessionEstablished: sessionData.timestamp
-        },
-        status: 'success'
-      }
-    };
+    // Parse the HTML to extract company data
+    const companyData = parseScreenerData(html, symbol);
     
-    // Cache the response for 30 seconds
-    res.setHeader('Cache-Control', 'public, max-age=30');
+    console.log(`✅ Successfully fetched ${symbol} from Screener.in`);
     
-    return res.status(200).json(enrichedData);
-    
-  } catch (error) {
-    console.error('💥 Proxy Error:', error);
-    
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-}
-
-// Function to get fresh session cookies from NSE homepage
-async function getSessionFromNSE() {
-  try {
-    console.log('🔄 Fetching fresh session from NSE homepage...');
-    
-    // Step 1: Visit NSE homepage to get initial cookies
-    const homepageResponse = await fetch('https://www.nseindia.com', {
-      method: 'GET',
-      headers: {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'pragma': 'no-cache',
-        'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"macOS"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
-        'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1',
-        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
-      }
-    });
-    
-    if (!homepageResponse.ok) {
-      throw new Error(`Homepage request failed: ${homepageResponse.status}`);
-    }
-    
-    // Extract cookies from response headers
-    const setCookieHeaders = homepageResponse.headers.raw()['set-cookie'] || [];
-    console.log('🍪 Received cookies:', setCookieHeaders.length);
-    
-    // Parse and format cookies for subsequent requests
-    const cookies = extractCookies(setCookieHeaders);
-    console.log('📦 Parsed cookies:', Object.keys(cookies).length);
-    
-    // Step 2: Get the homepage content to extract any additional tokens
-    const homepageContent = await homepageResponse.text();
-    
-    // Extract nseappid or other tokens from the page if present
-    const additionalTokens = extractTokensFromContent(homepageContent);
-    
-    // Combine all cookies
-    const allCookies = { ...cookies, ...additionalTokens };
-    
-    // Format cookies for header
-    const cookieHeader = Object.entries(allCookies)
-      .map(([key, value]) => `${key}=${value}`)
-      .join('; ');
-    
-    console.log('✅ Session established with', Object.keys(allCookies).length, 'cookies');
-    
-    return {
+    // Return the parsed data
+    res.status(200).json({
       success: true,
-      cookies: cookieHeader,
-      cookieCount: Object.keys(allCookies).length,
+      symbol: symbol,
+      data: companyData,
+      source: 'Screener.in via Vercel Proxy',
       timestamp: new Date().toISOString()
-    };
-    
-  } catch (error) {
-    console.error('❌ Session establishment failed:', error);
-    return {
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    };
-  }
-}
-
-// Helper function to extract cookies from Set-Cookie headers
-function extractCookies(setCookieHeaders) {
-  const cookies = {};
-  
-  setCookieHeaders.forEach(header => {
-    if (typeof header === 'string') {
-      const cookieParts = header.split(';')[0].split('=');
-      if (cookieParts.length >= 2) {
-        const name = cookieParts[0].trim();
-        const value = cookieParts.slice(1).join('=').trim();
-        cookies[name] = value;
-      }
-    }
-  });
-  
-  return cookies;
-}
-
-// Helper function to extract tokens from page content
-function extractTokensFromContent(content) {
-  const tokens = {};
-  
-  try {
-    // Extract nseappid token if present
-    const nseappidMatch = content.match(/nseappid['"]\s*:\s*['"]([^'"]+)['"]/i);
-    if (nseappidMatch) {
-      tokens.nseappid = nseappidMatch[1];
-      console.log('🔑 Found nseappid token');
-    }
-    
-    // Extract other potential tokens
-    const tokenPatterns = [
-      /token['"]\s*:\s*['"]([^'"]+)['"]/i,
-      /sessionId['"]\s*:\s*['"]([^'"]+)['"]/i,
-      /apiKey['"]\s*:\s*['"]([^'"]+)['"]/i
-    ];
-    
-    tokenPatterns.forEach((pattern, index) => {
-      const match = content.match(pattern);
-      if (match) {
-        tokens[`token_${index}`] = match[1];
-        console.log(`🔑 Found token_${index}`);
-      }
     });
     
   } catch (error) {
-    console.warn('⚠️ Token extraction failed:', error.message);
+    console.error(`❌ Error fetching ${req.query.symbol}:`, error);
+    res.status(500).json({ 
+      error: 'Failed to fetch data from Screener.in',
+      details: error.message,
+      symbol: req.query.symbol
+    });
   }
-  
-  return tokens;
+}
+
+// Parse Screener.in HTML to extract company data
+function parseScreenerData(html, symbol) {
+  try {
+    // Helper function to extract text content from HTML
+    const extractValue = (regex, defaultValue = 'N/A') => {
+      const match = html.match(regex);
+      return match ? match[1].trim() : defaultValue;
+    };
+    
+    // Helper function to extract numeric value
+    const extractNumber = (regex, defaultValue = 0) => {
+      const match = html.match(regex);
+      if (!match) return defaultValue;
+      const value = match[1].replace(/[^\d.-]/g, '');
+      return value ? parseFloat(value) : defaultValue;
+    };
+    
+    // Extract company name
+    let companyName = extractValue(/<h1[^>]*>([^<]+)<\/h1>/);
+    if (companyName === 'N/A') {
+      companyName = extractValue(/<title>([^|]+)\|/);
+    }
+    if (companyName === 'N/A') {
+      companyName = symbol;
+    }
+    
+    // Extract current price
+    const currentPrice = extractNumber(/Current Price[^₹]*₹([^<]+)/i) || 
+                        extractNumber(/Price[^₹]*₹([^<]+)/i) ||
+                        extractNumber(/₹([^<]+)/);
+    
+    // Extract 52-week high and low
+    const week52High = extractNumber(/52W High[^₹]*₹([^<]+)/i) ||
+                      extractNumber(/52 Week High[^₹]*₹([^<]+)/i);
+    
+    const week52Low = extractNumber(/52W Low[^₹]*₹([^<]+)/i) ||
+                     extractNumber(/52 Week Low[^₹]*₹([^<]+)/i);
+    
+    // Extract PE ratios
+    const currentPE = extractNumber(/PE[^>]*>([^<]+)</i) ||
+                     extractNumber(/P\/E[^>]*>([^<]+)</i);
+    
+    // Extract sector
+    let sector = extractValue(/Sector[^>]*>([^<]+)</i);
+    if (sector === 'N/A') {
+      sector = extractValue(/Industry[^>]*>([^<]+)</i);
+    }
+    
+    // Extract market cap
+    const marketCap = extractValue(/Market Cap[^>]*>([^<]+)</i) ||
+                     extractValue(/Mkt Cap[^>]*>([^<]+)</i);
+    
+    // Try to extract from table structure if main extraction fails
+    if (currentPrice === 0) {
+      const tableMatches = html.match(/<table[^>]*>[\s\S]*?<\/table>/gi);
+      if (tableMatches) {
+        for (const table of tableMatches) {
+          const priceMatch = table.match(/₹([^<]+)/);
+          if (priceMatch) {
+            const price = parseFloat(priceMatch[1].replace(/[^\d.-]/g, ''));
+            if (price > 0) {
+              return {
+                companyName: companyName,
+                lastPrice: price,
+                week52High: week52High || price * 1.2,
+                week52Low: week52Low || price * 0.8,
+                currentPE: currentPE || 15,
+                peAtHigh: currentPE * 1.2 || 18,
+                peAtLow: currentPE * 0.8 || 12,
+                sector: sector,
+                marketCap: marketCap
+              };
+            }
+          }
+        }
+      }
+    }
+    
+    // Calculate PE at high and low if not available
+    const peAtHigh = currentPE > 0 ? currentPE * 1.2 : 18;
+    const peAtLow = currentPE > 0 ? currentPE * 0.8 : 12;
+    
+    return {
+      companyName: companyName,
+      lastPrice: currentPrice,
+      week52High: week52High || currentPrice * 1.2,
+      week52Low: week52Low || currentPrice * 0.8,
+      currentPE: currentPE,
+      peAtHigh: peAtHigh,
+      peAtLow: peAtLow,
+      sector: sector,
+      marketCap: marketCap
+    };
+    
+  } catch (error) {
+    console.error('Error parsing Screener.in data:', error);
+    return {
+      companyName: symbol,
+      lastPrice: 0,
+      week52High: 0,
+      week52Low: 0,
+      currentPE: 0,
+      peAtHigh: 0,
+      peAtLow: 0,
+      sector: 'N/A',
+      marketCap: 'N/A'
+    };
+  }
 } 
